@@ -16,6 +16,7 @@ type BlockElement struct {
 	Style   StyleBlock
 	Margin  bool
 	Newline bool
+	List    bool
 }
 
 // Render renders a BlockElement.
@@ -33,11 +34,11 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 	bs := ctx.blockStack
 
 	if e.Margin { //nolint: nestif
-		s := lipgloss.Wrap(
-			bs.Current().Block.String(),
-			int(bs.Width(ctx)), //nolint: gosec
-			" ,.;-+|",
-		)
+		width := int(bs.Width(ctx))
+		s := lipgloss.Wrap(bs.Current().Block.String(), width, " ,.;-+|")
+		if e.List {
+			s = wrapListBlock(bs.Current().Block.String(), listWrapWidth(width, bs.Current().Style), ctx.options.Styles)
+		}
 
 		mw := NewMarginWriter(ctx, w, bs.Current().Style)
 		defer mw.Close() //nolint:errcheck

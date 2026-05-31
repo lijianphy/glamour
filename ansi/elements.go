@@ -117,6 +117,7 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 			Style:   cascadeStyle(ctx.blockStack.Current().Style, s, false),
 			Margin:  true,
 			Newline: true,
+			List:    true,
 		}
 		return Element{
 			Entering: "\n",

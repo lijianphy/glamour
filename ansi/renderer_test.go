@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 	"github.com/yuin/goldmark"
 	emoji "github.com/yuin/goldmark-emoji"
@@ -87,6 +88,96 @@ func TestRenderer(t *testing.T) {
 			golden.RequireEqual(t, buf.Bytes())
 		})
 	}
+}
+
+func TestRendererListItemsUseHangingIndent(t *testing.T) {
+	indent := uint(2)
+	options := Options{
+		WordWrap: 54,
+		Styles: StyleConfig{
+			List: StyleList{
+				StyleBlock: StyleBlock{
+					Indent: &indent,
+				},
+				LevelIndent: 2,
+			},
+			Item:        StylePrimitive{BlockPrefix: "• "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+			Task: StyleTask{
+				Ticked:   "[x] ",
+				Unticked: "[ ] ",
+			},
+		},
+	}
+	source := strings.Join([]string{
+		"1. Capture: Both stdout and stderr are written to a single temp file.",
+		"2. Truncation: Output is read back and truncated to 2000 lines or 50000 Unicode code points, whichever is hit first. If truncated, the full output is saved to `.sciagent/batch_shell_output_timestamp_rand.txt` and a system message points you to it.",
+		"3. Streaming deltas: During execution, output is batched.",
+		"",
+		"- Prepare `run.in`",
+		"  - Capture stdout",
+		"  - Save stderr",
+	}, "\n")
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	for _, want := range []string{"  1. Capture", "  2. Truncation", "  3. Streaming", "  • Prepare", "    • Capture", "    • Save"} {
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("rendered list missing %q:\n%s", want, stripped)
+		}
+	}
+
+	inSecondItem := false
+	continuations := 0
+	for _, line := range strings.Split(stripped, "\n") {
+		if width := xansi.StringWidth(line); width > options.WordWrap {
+			t.Fatalf("rendered line width = %d, want <= %d: %q\n%s", width, options.WordWrap, line, stripped)
+		}
+		switch {
+		case strings.HasPrefix(line, "  2. "):
+			inSecondItem = true
+			continue
+		case strings.HasPrefix(line, "  3. "):
+			inSecondItem = false
+			continue
+		}
+		if !inSecondItem || strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !strings.HasPrefix(line, "     ") {
+			t.Fatalf("list continuation line is not aligned under item text: %q\n%s", line, stripped)
+		}
+		continuations++
+	}
+	if continuations == 0 {
+		t.Fatalf("test did not produce list continuation lines:\n%s", stripped)
+	}
+}
+
+func renderMarkdownForTest(t *testing.T, source string, options Options) string {
+	t.Helper()
+
+	md := goldmark.New(
+		goldmark.WithExtensions(
+			extension.GFM,
+			extension.DefinitionList,
+			emoji.Emoji,
+		),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+		),
+	)
+
+	ar := NewRenderer(options)
+	md.SetRenderer(
+		renderer.NewRenderer(
+			renderer.WithNodeRenderers(util.Prioritized(ar, 1000))))
+
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(source), &buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
 }
 
 func TestRendererIssues(t *testing.T) {
