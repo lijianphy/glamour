@@ -1,13 +1,17 @@
 package ansi
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/alecthomas/chroma/v2/styles"
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 const (
@@ -133,9 +137,18 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	if len(theme) > 0 {
 		_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
 
-		err := quick.Highlight(iw, e.Code, e.Language, formatter, theme)
+		var highlighted bytes.Buffer
+		err := quick.Highlight(&highlighted, e.Code, e.Language, formatter, theme)
 		if err != nil {
 			return fmt.Errorf("glamour: error highlighting code: %w", err)
+		}
+		width := int(bs.Width(ctx)) //nolint:gosec
+		if bs.Current().List {
+			width = listWrapWidth(width, bs.Current().Style)
+		}
+		width -= int(indentation + margin) //nolint:gosec
+		if _, err := io.WriteString(iw, renderCodeBlockBackground(highlighted.String(), rules, theme, width)); err != nil {
+			return fmt.Errorf("glamour: error writing highlighted code: %w", err)
 		}
 		_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockSuffix)
 		return nil
@@ -148,4 +161,91 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	}
 
 	return el.Render(iw, ctx)
+}
+
+// renderCodeBlockBackground paints and right-pads each highlighted row when the
+// code block style opts in to a background. The caller's indentation writer adds
+// leading indentation outside this background, matching Rich's Markdown code
+// block rendering where list/quote indentation remains unpainted.
+func renderCodeBlockBackground(value string, rules StyleCodeBlock, theme string, width int) string {
+	if rules.BackgroundColor == nil {
+		return value
+	}
+	backgroundSGR := codeBlockBackgroundSequence(rules, theme)
+	if backgroundSGR == "" || width <= 0 {
+		return value
+	}
+
+	// Rich's Markdown code blocks use Syntax(..., padding=1), so add the top
+	// padding row here. Chroma already emits a final empty row for fenced blocks.
+	value = "\n" + value
+	parts := strings.SplitAfter(value, "\n")
+	for index, part := range parts {
+		if part == "" {
+			continue
+		}
+		hasNewline := strings.HasSuffix(part, "\n")
+		line := strings.TrimSuffix(part, "\n")
+		line = backgroundSGR + reapplyBackgroundAfterReset(line, backgroundSGR)
+		if padding := width - xansi.StringWidth(line); padding > 0 {
+			line += strings.Repeat(" ", padding)
+		}
+		line += "\x1b[0m"
+		if hasNewline {
+			line += "\n"
+		}
+		parts[index] = line
+	}
+	rendered := strings.Join(parts, "")
+	if !strings.HasSuffix(rendered, "\n") {
+		rendered += "\n"
+	}
+	return rendered
+}
+
+// codeBlockBackgroundSequence returns the explicit code block background color,
+// falling back to the Chroma theme background when the explicit color is empty
+// or invalid.
+func codeBlockBackgroundSequence(rules StyleCodeBlock, theme string) string {
+	if rules.BackgroundColor != nil {
+		if background := styleBackgroundSequence(*rules.BackgroundColor); background != "" {
+			return background
+		}
+	}
+	if style := styles.Get(theme); style != nil {
+		for _, tokenType := range []chroma.TokenType{chroma.Background, chroma.Text} {
+			if background := style.Get(tokenType).Background; background.IsSet() {
+				return backgroundSequence(background)
+			}
+		}
+	}
+	return ""
+}
+
+// reapplyBackgroundAfterReset preserves the block background across Chroma's
+// token reset sequences. Chroma may emit either ESC[0m or ESC[m.
+func reapplyBackgroundAfterReset(value, backgroundSGR string) string {
+	value = strings.ReplaceAll(value, "\x1b[0m", "\x1b[0m"+backgroundSGR)
+	return strings.ReplaceAll(value, "\x1b[m", "\x1b[m"+backgroundSGR)
+}
+
+func backgroundSequence(colour chroma.Colour) string {
+	return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", colour.Red(), colour.Green(), colour.Blue())
+}
+
+func styleBackgroundSequence(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if number, err := strconv.Atoi(value); err == nil && number >= 0 && number <= 255 {
+		return fmt.Sprintf("\x1b[48;5;%dm", number)
+	}
+	if colour := chroma.ParseColour(value); colour.IsSet() {
+		return backgroundSequence(colour)
+	}
+	if colour := chroma.ParseColour("#" + value); colour.IsSet() {
+		return backgroundSequence(colour)
+	}
+	return ""
 }
