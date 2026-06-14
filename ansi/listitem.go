@@ -13,17 +13,22 @@ type ItemElement struct {
 
 // Render renders an ItemElement.
 func (e *ItemElement) Render(w io.Writer, ctx RenderContext) error {
-	var el *BaseElement
 	if e.IsOrdered {
-		el = &BaseElement{
-			Style:  ctx.options.Styles.Enumeration,
-			Prefix: strconv.FormatInt(int64(e.Enumeration), 10), //nolint: gosec
+		enumeration := ctx.options.Styles.Enumeration
+		number := strconv.FormatInt(int64(e.Enumeration), 10) //nolint:gosec
+		if err := renderListMarker(w, ctx, number, enumeration); err != nil {
+			return err
 		}
-	} else {
-		el = &BaseElement{
-			Style: ctx.options.Styles.Item,
-		}
+		return renderListMarker(w, ctx, enumeration.BlockPrefix, enumeration)
 	}
+	return renderListMarker(w, ctx, ctx.options.Styles.Item.BlockPrefix, ctx.options.Styles.Item)
+}
 
+func renderListMarker(w io.Writer, ctx RenderContext, marker string, style StylePrimitive) error {
+	style.BlockPrefix = ""
+	el := &BaseElement{
+		Token: marker,
+		Style: style,
+	}
 	return el.Render(w, ctx)
 }

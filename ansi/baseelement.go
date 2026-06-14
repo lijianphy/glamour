@@ -72,6 +72,12 @@ func renderText(w io.Writer, rules StylePrimitive, s string) (int, error) { //no
 	if rules.CrossedOut != nil && *rules.CrossedOut {
 		style = style.Strikethrough(true)
 	}
+	if rules.Faint != nil && *rules.Faint {
+		style = style.Faint()
+	}
+	if rules.Conceal != nil {
+		style = style.Conceal(*rules.Conceal)
+	}
 	if rules.Inverse != nil && *rules.Inverse {
 		style = style.Reverse(true)
 	}

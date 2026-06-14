@@ -79,13 +79,16 @@ func (e *TableElement) setStyles(ctx RenderContext) {
 		ctx.table.lipgloss.BaseStyle(baseStyle)
 	}
 
-	ctx.table.lipgloss = ctx.table.lipgloss.StyleFunc(func(_, col int) lipgloss.Style {
-		st := lipgloss.NewStyle().Inline(false)
+	rules := ctx.options.Styles.Table
+	ctx.table.lipgloss = ctx.table.lipgloss.StyleFunc(func(row, col int) lipgloss.Style {
+		st := lipglossStyleFromPrimitive(
+			tableCellStylePrimitive(rules, row == table.HeaderRow),
+		).Inline(false)
 		// Default Styles
 		st = st.Margin(0, 1)
 
 		// Override with custom styles
-		if m := ctx.options.Styles.Table.Margin; m != nil {
+		if m := rules.Margin; m != nil {
 			st = st.Padding(0, int(*m)) //nolint: gosec
 		}
 		switch e.table.Alignments[col] {
@@ -117,6 +120,9 @@ func (e *TableElement) setBorders(ctx RenderContext) {
 		}
 	}
 	ctx.table.lipgloss.Border(border)
+	ctx.table.lipgloss.BorderStyle(
+		lipglossStyleFromPrimitive(cascadeStylePrimitives(rules.StylePrimitive, rules.Border)),
+	)
 	ctx.table.lipgloss.BorderTop(false)
 	ctx.table.lipgloss.BorderLeft(false)
 	ctx.table.lipgloss.BorderRight(false)
@@ -175,7 +181,7 @@ func (e *TableHeadElement) Finish(_ io.Writer, ctx RenderContext) error {
 // Render renders a TableCellElement.
 func (e *TableCellElement) Render(_ io.Writer, ctx RenderContext) error {
 	var b bytes.Buffer
-	style := ctx.options.Styles.Table.StylePrimitive
+	style := tableCellStylePrimitive(ctx.options.Styles.Table, e.Head)
 	for _, child := range e.Children {
 		if r, ok := child.(StyleOverriderElementRenderer); ok {
 			if err := r.StyleOverrideRender(&b, ctx, style); err != nil {
@@ -203,4 +209,44 @@ func (e *TableCellElement) Render(_ io.Writer, ctx RenderContext) error {
 	}
 
 	return nil
+}
+
+func tableCellStylePrimitive(rules StyleTable, head bool) StylePrimitive {
+	style := cascadeStylePrimitives(rules.StylePrimitive, rules.Cell)
+	if head {
+		style = cascadeStylePrimitives(style, rules.Header)
+	}
+	return style
+}
+
+func lipglossStyleFromPrimitive(rules StylePrimitive) lipgloss.Style {
+	style := lipgloss.NewStyle()
+	if rules.Color != nil {
+		style = style.Foreground(lipgloss.Color(*rules.Color))
+	}
+	if rules.BackgroundColor != nil {
+		style = style.Background(lipgloss.Color(*rules.BackgroundColor))
+	}
+	if rules.Underline != nil {
+		style = style.Underline(*rules.Underline)
+	}
+	if rules.Bold != nil {
+		style = style.Bold(*rules.Bold)
+	}
+	if rules.Italic != nil {
+		style = style.Italic(*rules.Italic)
+	}
+	if rules.CrossedOut != nil {
+		style = style.Strikethrough(*rules.CrossedOut)
+	}
+	if rules.Faint != nil {
+		style = style.Faint(*rules.Faint)
+	}
+	if rules.Inverse != nil {
+		style = style.Reverse(*rules.Inverse)
+	}
+	if rules.Blink != nil {
+		style = style.Blink(*rules.Blink)
+	}
+	return style
 }
