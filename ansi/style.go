@@ -2,37 +2,37 @@ package ansi
 
 // Chroma holds all the chroma settings.
 type Chroma struct {
-	Text                StylePrimitive `json:"text,omitempty"`
-	Error               StylePrimitive `json:"error,omitempty"`
-	Comment             StylePrimitive `json:"comment,omitempty"`
-	CommentPreproc      StylePrimitive `json:"comment_preproc,omitempty"`
-	Keyword             StylePrimitive `json:"keyword,omitempty"`
-	KeywordReserved     StylePrimitive `json:"keyword_reserved,omitempty"`
-	KeywordNamespace    StylePrimitive `json:"keyword_namespace,omitempty"`
-	KeywordType         StylePrimitive `json:"keyword_type,omitempty"`
-	Operator            StylePrimitive `json:"operator,omitempty"`
-	Punctuation         StylePrimitive `json:"punctuation,omitempty"`
-	Name                StylePrimitive `json:"name,omitempty"`
-	NameBuiltin         StylePrimitive `json:"name_builtin,omitempty"`
-	NameTag             StylePrimitive `json:"name_tag,omitempty"`
-	NameAttribute       StylePrimitive `json:"name_attribute,omitempty"`
-	NameClass           StylePrimitive `json:"name_class,omitempty"`
-	NameConstant        StylePrimitive `json:"name_constant,omitempty"`
-	NameDecorator       StylePrimitive `json:"name_decorator,omitempty"`
-	NameException       StylePrimitive `json:"name_exception,omitempty"`
-	NameFunction        StylePrimitive `json:"name_function,omitempty"`
-	NameOther           StylePrimitive `json:"name_other,omitempty"`
-	Literal             StylePrimitive `json:"literal,omitempty"`
-	LiteralNumber       StylePrimitive `json:"literal_number,omitempty"`
-	LiteralDate         StylePrimitive `json:"literal_date,omitempty"`
-	LiteralString       StylePrimitive `json:"literal_string,omitempty"`
-	LiteralStringEscape StylePrimitive `json:"literal_string_escape,omitempty"`
-	GenericDeleted      StylePrimitive `json:"generic_deleted,omitempty"`
-	GenericEmph         StylePrimitive `json:"generic_emph,omitempty"`
-	GenericInserted     StylePrimitive `json:"generic_inserted,omitempty"`
-	GenericStrong       StylePrimitive `json:"generic_strong,omitempty"`
-	GenericSubheading   StylePrimitive `json:"generic_subheading,omitempty"`
-	Background          StylePrimitive `json:"background,omitempty"`
+	Text                StylePrimitive `json:"text"`
+	Error               StylePrimitive `json:"error"`
+	Comment             StylePrimitive `json:"comment"`
+	CommentPreproc      StylePrimitive `json:"comment_preproc"`
+	Keyword             StylePrimitive `json:"keyword"`
+	KeywordReserved     StylePrimitive `json:"keyword_reserved"`
+	KeywordNamespace    StylePrimitive `json:"keyword_namespace"`
+	KeywordType         StylePrimitive `json:"keyword_type"`
+	Operator            StylePrimitive `json:"operator"`
+	Punctuation         StylePrimitive `json:"punctuation"`
+	Name                StylePrimitive `json:"name"`
+	NameBuiltin         StylePrimitive `json:"name_builtin"`
+	NameTag             StylePrimitive `json:"name_tag"`
+	NameAttribute       StylePrimitive `json:"name_attribute"`
+	NameClass           StylePrimitive `json:"name_class"`
+	NameConstant        StylePrimitive `json:"name_constant"`
+	NameDecorator       StylePrimitive `json:"name_decorator"`
+	NameException       StylePrimitive `json:"name_exception"`
+	NameFunction        StylePrimitive `json:"name_function"`
+	NameOther           StylePrimitive `json:"name_other"`
+	Literal             StylePrimitive `json:"literal"`
+	LiteralNumber       StylePrimitive `json:"literal_number"`
+	LiteralDate         StylePrimitive `json:"literal_date"`
+	LiteralString       StylePrimitive `json:"literal_string"`
+	LiteralStringEscape StylePrimitive `json:"literal_string_escape"`
+	GenericDeleted      StylePrimitive `json:"generic_deleted"`
+	GenericEmph         StylePrimitive `json:"generic_emph"`
+	GenericInserted     StylePrimitive `json:"generic_inserted"`
+	GenericStrong       StylePrimitive `json:"generic_strong"`
+	GenericSubheading   StylePrimitive `json:"generic_subheading"`
+	Background          StylePrimitive `json:"background"`
 }
 
 // StylePrimitive holds all the basic style settings.
@@ -91,53 +91,53 @@ type StyleTable struct {
 	CenterSeparator *string        `json:"center_separator,omitempty"`
 	ColumnSeparator *string        `json:"column_separator,omitempty"`
 	RowSeparator    *string        `json:"row_separator,omitempty"`
-	Border          StylePrimitive `json:"border,omitempty"`
-	Header          StylePrimitive `json:"header,omitempty"`
-	Cell            StylePrimitive `json:"cell,omitempty"`
+	Border          StylePrimitive `json:"border"`
+	Header          StylePrimitive `json:"header"`
+	Cell            StylePrimitive `json:"cell"`
 }
 
 // StyleConfig is used to configure the styling behavior of an ANSIRenderer.
 type StyleConfig struct {
-	Document   StyleBlock `json:"document,omitempty"`
-	BlockQuote StyleBlock `json:"block_quote,omitempty"`
-	Paragraph  StyleBlock `json:"paragraph,omitempty"`
-	List       StyleList  `json:"list,omitempty"`
+	Document   StyleBlock `json:"document"`
+	BlockQuote StyleBlock `json:"block_quote"`
+	Paragraph  StyleBlock `json:"paragraph"`
+	List       StyleList  `json:"list"`
 
-	Heading StyleBlock `json:"heading,omitempty"`
-	H1      StyleBlock `json:"h1,omitempty"`
-	H2      StyleBlock `json:"h2,omitempty"`
-	H3      StyleBlock `json:"h3,omitempty"`
-	H4      StyleBlock `json:"h4,omitempty"`
-	H5      StyleBlock `json:"h5,omitempty"`
-	H6      StyleBlock `json:"h6,omitempty"`
+	Heading StyleBlock `json:"heading"`
+	H1      StyleBlock `json:"h1"`
+	H2      StyleBlock `json:"h2"`
+	H3      StyleBlock `json:"h3"`
+	H4      StyleBlock `json:"h4"`
+	H5      StyleBlock `json:"h5"`
+	H6      StyleBlock `json:"h6"`
 
-	Text           StylePrimitive `json:"text,omitempty"`
-	Strikethrough  StylePrimitive `json:"strikethrough,omitempty"`
-	Emph           StylePrimitive `json:"emph,omitempty"`
-	Strong         StylePrimitive `json:"strong,omitempty"`
-	HorizontalRule StylePrimitive `json:"hr,omitempty"`
+	Text           StylePrimitive `json:"text"`
+	Strikethrough  StylePrimitive `json:"strikethrough"`
+	Emph           StylePrimitive `json:"emph"`
+	Strong         StylePrimitive `json:"strong"`
+	HorizontalRule StylePrimitive `json:"hr"`
 
-	Item        StylePrimitive `json:"item,omitempty"`
-	Enumeration StylePrimitive `json:"enumeration,omitempty"`
-	Task        StyleTask      `json:"task,omitempty"`
+	Item        StylePrimitive `json:"item"`
+	Enumeration StylePrimitive `json:"enumeration"`
+	Task        StyleTask      `json:"task"`
 
-	Link     StylePrimitive `json:"link,omitempty"`
-	LinkText StylePrimitive `json:"link_text,omitempty"`
+	Link     StylePrimitive `json:"link"`
+	LinkText StylePrimitive `json:"link_text"`
 
-	Image     StylePrimitive `json:"image,omitempty"`
-	ImageText StylePrimitive `json:"image_text,omitempty"`
+	Image     StylePrimitive `json:"image"`
+	ImageText StylePrimitive `json:"image_text"`
 
-	Code      StyleBlock     `json:"code,omitempty"`
-	CodeBlock StyleCodeBlock `json:"code_block,omitempty"`
+	Code      StyleBlock     `json:"code"`
+	CodeBlock StyleCodeBlock `json:"code_block"`
 
-	Table StyleTable `json:"table,omitempty"`
+	Table StyleTable `json:"table"`
 
-	DefinitionList        StyleBlock     `json:"definition_list,omitempty"`
-	DefinitionTerm        StylePrimitive `json:"definition_term,omitempty"`
-	DefinitionDescription StylePrimitive `json:"definition_description,omitempty"`
+	DefinitionList        StyleBlock     `json:"definition_list"`
+	DefinitionTerm        StylePrimitive `json:"definition_term"`
+	DefinitionDescription StylePrimitive `json:"definition_description"`
 
-	HTMLBlock StyleBlock `json:"html_block,omitempty"`
-	HTMLSpan  StyleBlock `json:"html_span,omitempty"`
+	HTMLBlock StyleBlock `json:"html_block"`
+	HTMLSpan  StyleBlock `json:"html_span"`
 }
 
 func cascadeStyles(s ...StyleBlock) StyleBlock {

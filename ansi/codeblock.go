@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
+	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
 	"github.com/alecthomas/chroma/v2/quick"
 	"github.com/alecthomas/chroma/v2/styles"
@@ -129,10 +131,19 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 		mutex.Unlock()
 	}
 
-	iw := NewIndentWriter(w, int(indentation+margin), func(_ io.Writer) { //nolint:gosec
+	iw := NewIndentWriter(w, int(indentation+margin), func(_ io.Writer) {
 		_, _ = renderText(w, bs.Current().Style.StylePrimitive, " ")
 	})
 	defer iw.Close() //nolint:errcheck
+
+	width := int(bs.Width(ctx))
+	if bs.Current().List {
+		width = listWrapWidth(width, bs.Current().Style)
+	}
+	width -= int(indentation + margin)
+	if width < 0 {
+		width = 0
+	}
 
 	if len(theme) > 0 {
 		_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
@@ -142,11 +153,6 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 		if err != nil {
 			return fmt.Errorf("glamour: error highlighting code: %w", err)
 		}
-		width := int(bs.Width(ctx)) //nolint:gosec
-		if bs.Current().List {
-			width = listWrapWidth(width, bs.Current().Style)
-		}
-		width -= int(indentation + margin) //nolint:gosec
 		if _, err := io.WriteString(iw, renderCodeBlockBackground(highlighted.String(), rules, theme, width)); err != nil {
 			return fmt.Errorf("glamour: error writing highlighted code: %w", err)
 		}
@@ -156,7 +162,7 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 
 	// fallback rendering
 	el := &BaseElement{
-		Token: e.Code,
+		Token: wrapCodeBlockLines(e.Code, width),
 		Style: rules.StylePrimitive,
 	}
 
@@ -168,6 +174,7 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 // leading indentation outside this background, matching Rich's Markdown code
 // block rendering where list/quote indentation remains unpainted.
 func renderCodeBlockBackground(value string, rules StyleCodeBlock, theme string, width int) string {
+	value = wrapCodeBlockLines(value, width)
 	if rules.BackgroundColor == nil {
 		return value
 	}
@@ -201,6 +208,54 @@ func renderCodeBlockBackground(value string, rules StyleCodeBlock, theme string,
 		rendered += "\n"
 	}
 	return rendered
+}
+
+func wrapCodeBlockLines(value string, width int) string {
+	if value == "" || width <= 0 {
+		return value
+	}
+	lines := strings.SplitAfter(value, "\n")
+	for index, line := range lines {
+		if line == "" {
+			continue
+		}
+		hasNewline := strings.HasSuffix(line, "\n")
+		line = strings.TrimSuffix(line, "\n")
+		if xansi.StringWidth(line) > width {
+			line = wrapCodeBlockLine(line, width)
+		}
+		if hasNewline {
+			line += "\n"
+		}
+		lines[index] = line
+	}
+	return strings.Join(lines, "")
+}
+
+func wrapCodeBlockLine(value string, width int) string {
+	if codeBlockLineStartsWithWhitespace(value) {
+		return hardWrapCodeBlockLine(value, width)
+	}
+	return lipgloss.Wrap(value, width, " ,.;-+|")
+}
+
+func codeBlockLineStartsWithWhitespace(value string) bool {
+	for _, r := range xansi.Strip(value) {
+		return unicode.IsSpace(r)
+	}
+	return false
+}
+
+func hardWrapCodeBlockLine(value string, width int) string {
+	wrapped := xansi.Hardwrap(value, width, true)
+	if wrapped == value {
+		return value
+	}
+	var buffer bytes.Buffer
+	ww := lipgloss.NewWrapWriter(&buffer)
+	_, _ = io.WriteString(ww, wrapped)
+	_ = ww.Close()
+	return buffer.String()
 }
 
 // codeBlockBackgroundSequence returns the explicit code block background color,

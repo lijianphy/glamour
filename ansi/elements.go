@@ -137,7 +137,7 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		if node.Parent().(*ast.List).IsOrdered() {
 			e = l
 			if node.Parent().(*ast.List).Start != 1 {
-				e += uint(node.Parent().(*ast.List).Start) - 1 //nolint: gosec
+				e += uint(node.Parent().(*ast.List).Start) - 1
 			}
 		}
 
@@ -334,15 +334,15 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 	case ast.KindFencedCodeBlock:
 		n := node.(*ast.FencedCodeBlock)
 		l := n.Lines().Len()
-		s := ""
-		for i := 0; i < l; i++ {
+		var s strings.Builder
+		for i := range l {
 			line := n.Lines().At(i)
-			s += string(line.Value(source))
+			s.WriteString(string(line.Value(source)))
 		}
 		return Element{
 			Entering: "\n",
 			Renderer: &CodeBlockElement{
-				Code:     s,
+				Code:     s.String(),
 				Language: string(n.Language(source)),
 			},
 		}
@@ -350,15 +350,15 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 	case ast.KindCodeBlock:
 		n := node.(*ast.CodeBlock)
 		l := n.Lines().Len()
-		s := ""
-		for i := 0; i < l; i++ {
+		var s strings.Builder
+		for i := range l {
 			line := n.Lines().At(i)
-			s += string(line.Value(source))
+			s.WriteString(string(line.Value(source)))
 		}
 		return Element{
 			Entering: "\n",
 			Renderer: &CodeBlockElement{
-				Code: s,
+				Code: s.String(),
 			},
 		}
 

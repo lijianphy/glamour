@@ -12,45 +12,33 @@ import (
 // TemplateFuncMap contains a few useful template helpers.
 var (
 	TemplateFuncMap = template.FuncMap{
-		"Left": func(values ...interface{}) string {
+		"Left": func(values ...any) string {
 			s := values[0].(string)
-			n := values[1].(int)
-			if n > len(s) {
-				n = len(s)
-			}
+			n := min(values[1].(int), len(s))
 
 			return s[:n]
 		},
-		"Matches": func(values ...interface{}) bool {
+		"Matches": func(values ...any) bool {
 			ok, _ := regexp.MatchString(values[1].(string), values[0].(string))
 			return ok
 		},
-		"Mid": func(values ...interface{}) string {
+		"Mid": func(values ...any) string {
 			s := values[0].(string)
-			l := values[1].(int)
-			if l > len(s) {
-				l = len(s)
-			}
+			l := min(values[1].(int), len(s))
 
 			if len(values) > 2 { //nolint:mnd
-				r := values[2].(int)
-				if r > len(s) {
-					r = len(s)
-				}
+				r := min(values[2].(int), len(s))
 				return s[l:r]
 			}
 			return s[l:]
 		},
-		"Right": func(values ...interface{}) string {
+		"Right": func(values ...any) string {
 			s := values[0].(string)
-			n := len(s) - values[1].(int)
-			if n < 0 {
-				n = 0
-			}
+			n := max(len(s)-values[1].(int), 0)
 
 			return s[n:]
 		},
-		"Last": func(values ...interface{}) string {
+		"Last": func(values ...any) string {
 			return values[0].([]string)[len(values[0].([]string))-1]
 		},
 		// strings functions

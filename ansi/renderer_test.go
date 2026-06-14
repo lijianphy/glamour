@@ -129,7 +129,7 @@ func TestRendererListItemsUseHangingIndent(t *testing.T) {
 
 	inSecondItem := false
 	continuations := 0
-	for _, line := range strings.Split(stripped, "\n") {
+	for line := range strings.SplitSeq(stripped, "\n") {
 		if width := xansi.StringWidth(line); width > options.WordWrap {
 			t.Fatalf("rendered line width = %d, want <= %d: %q\n%s", width, options.WordWrap, line, stripped)
 		}
@@ -151,6 +151,45 @@ func TestRendererListItemsUseHangingIndent(t *testing.T) {
 	}
 	if continuations == 0 {
 		t.Fatalf("test did not produce list continuation lines:\n%s", stripped)
+	}
+}
+
+func TestRendererCodeBlockLongLinesWrapInsideBlockIndent(t *testing.T) {
+	margin := uint(2)
+	background := "#272822"
+	options := Options{
+		WordWrap: 30,
+		Styles: StyleConfig{
+			CodeBlock: StyleCodeBlock{
+				StyleBlock: StyleBlock{
+					StylePrimitive: StylePrimitive{
+						BackgroundColor: &background,
+					},
+					Margin: &margin,
+				},
+				Theme: "monokai",
+			},
+		},
+	}
+	source := "```python\nprint(\"" + strings.Repeat("x", 60) + "\")\n```"
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	nonBlank := 0
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		nonBlank++
+		if width := xansi.StringWidth(line); width > options.WordWrap {
+			t.Fatalf("code block line width = %d, want <= %d: %q\n%s", width, options.WordWrap, line, stripped)
+		}
+		if !strings.HasPrefix(line, "  ") {
+			t.Fatalf("wrapped code block line lost block indent: %q\n%s", line, stripped)
+		}
+	}
+	if nonBlank < 2 {
+		t.Fatalf("test did not produce wrapped code rows:\n%s", stripped)
 	}
 }
 
