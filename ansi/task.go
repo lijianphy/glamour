@@ -2,6 +2,8 @@ package ansi
 
 import (
 	"io"
+
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 // A TaskElement is used to render tasks inside a todo-list.
@@ -23,5 +25,9 @@ func (e *TaskElement) Render(w io.Writer, ctx RenderContext) error {
 		Style:  ctx.options.Styles.Task.StylePrimitive,
 	}
 
-	return el.Render(w, ctx)
+	if err := el.Render(w, ctx); err != nil {
+		return err
+	}
+	setListContinuationColumn(ctx, xansi.StringWidth(pre))
+	return nil
 }

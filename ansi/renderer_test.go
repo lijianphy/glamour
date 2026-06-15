@@ -193,6 +193,75 @@ func TestRendererCodeBlockLongLinesWrapInsideBlockIndent(t *testing.T) {
 	}
 }
 
+func TestRendererListTableAvoidsSilentRightEdgeClipping(t *testing.T) {
+	options := listTableOptions(50)
+	source := strings.Join([]string{
+		"2. **Step 2: Convergence tests**",
+		"",
+		"   | Parameter  | Test range      | Chosen value |",
+		"   |------------|-----------------|-------------:|",
+		"   | ENCUT      | 400-800 eV      |       520 eV |",
+		"   | KPOINTS    | 2x2x2 - 12x12x12 |      8x8x8  |",
+		"   | SIGMA      | 0.01-0.2 eV     |       0.05 eV |",
+	}, "\n")
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	for _, unwanted := range []string{"Chosen valu\n", "520 e\n", "8x8x\n", "0.05 e\n"} {
+		if strings.Contains(stripped, unwanted) {
+			t.Fatalf("list table silently clipped %q:\n%s", unwanted, stripped)
+		}
+	}
+	for _, want := range []string{"Chosen value", "520 eV", "8x8x8", "12x12x12", "0.05 eV"} {
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("list table render missing %q:\n%s", want, stripped)
+		}
+	}
+}
+
+func TestRendererWideListTablesDoNotInsertBlankRows(t *testing.T) {
+	options := listTableOptions(120)
+	source := strings.Join([]string{
+		"- **MD Run #1 (NVT equilibration)**",
+		"  ",
+		"  | Phase | Steps | Ensemble |",
+		"  |-------|-------|----------|",
+		"  | Heat | 10000 | NVT |",
+		"  | Equil | 50000 | NVT |",
+		"  | Sample | 100000 | NVE |",
+		"",
+		"- **MD Run #2 (NPT production)**",
+		"  ",
+		"  | Phase | Steps | Ensemble |",
+		"  |-------|-------|----------|",
+		"  | Press | 50000 | NPT |",
+		"  | Sample | 200000 | NPT |",
+	}, "\n")
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	if strings.Contains(stripped, "Ensemble\n\n") {
+		t.Fatalf("wide list table inserted a blank row between header and separator:\n%s", stripped)
+	}
+	for _, want := range []string{"Sample", "100000", "200000", "NVE", "NPT"} {
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("wide list table render missing %q:\n%s", want, stripped)
+		}
+	}
+}
+
+func listTableOptions(width int) Options {
+	return Options{
+		WordWrap: width,
+		Styles: StyleConfig{
+			Item:        StylePrimitive{BlockPrefix: "• "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+			Task: StyleTask{
+				Ticked:   "[x] ",
+				Unticked: "[ ] ",
+			},
+		},
+	}
+}
+
 func renderMarkdownForTest(t *testing.T, source string, options Options) string {
 	t.Helper()
 

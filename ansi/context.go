@@ -12,7 +12,8 @@ type RenderContext struct {
 	options Options
 
 	blockStack *BlockStack
-	table      *TableElement
+	list       *listRenderState
+	table      *tableRenderState
 
 	stripper *bluemonday.Policy
 }
@@ -22,7 +23,8 @@ func NewRenderContext(options Options) RenderContext {
 	return RenderContext{
 		options:    options,
 		blockStack: &BlockStack{},
-		table:      &TableElement{},
+		list:       &listRenderState{},
+		table:      &tableRenderState{},
 		stripper:   bluemonday.StrictPolicy(),
 	}
 }

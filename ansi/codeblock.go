@@ -131,19 +131,11 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 		mutex.Unlock()
 	}
 
-	iw := NewIndentWriter(w, int(indentation+margin), func(_ io.Writer) {
+	blockIndent, width := indentedBlockWidth(ctx, indentation, margin)
+	iw := NewIndentWriter(w, blockIndent, func(_ io.Writer) {
 		_, _ = renderText(w, bs.Current().Style.StylePrimitive, " ")
 	})
 	defer iw.Close() //nolint:errcheck
-
-	width := int(bs.Width(ctx))
-	if bs.Current().List {
-		width = listWrapWidth(width, bs.Current().Style)
-	}
-	width -= int(indentation + margin)
-	if width < 0 {
-		width = 0
-	}
 
 	if len(theme) > 0 {
 		_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockPrefix)

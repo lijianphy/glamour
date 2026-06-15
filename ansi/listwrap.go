@@ -7,6 +7,35 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
+type listRenderState struct {
+	continuationColumns []int
+}
+
+func (s *listRenderState) push() {
+	s.continuationColumns = append(s.continuationColumns, 0)
+}
+
+func (s *listRenderState) pop() {
+	if len(s.continuationColumns) == 0 {
+		return
+	}
+	s.continuationColumns = s.continuationColumns[:len(s.continuationColumns)-1]
+}
+
+func (s *listRenderState) setContinuationColumn(column int) {
+	if len(s.continuationColumns) == 0 {
+		return
+	}
+	s.continuationColumns[len(s.continuationColumns)-1] = column
+}
+
+func (s *listRenderState) continuationColumn() int {
+	if len(s.continuationColumns) == 0 {
+		return 0
+	}
+	return s.continuationColumns[len(s.continuationColumns)-1]
+}
+
 func wrapListBlock(value string, width int, styles StyleConfig) string {
 	if value == "" {
 		return ""
@@ -43,6 +72,29 @@ func listWrapWidth(width int, style StyleBlock) int {
 		width -= int(*style.Margin)
 	}
 	return max(1, width)
+}
+
+// indentedBlockWidth returns the leading indentation and content width for a
+// nested block that list wrapping will later keep aligned under the item text.
+func indentedBlockWidth(ctx RenderContext, indentation, margin uint) (int, int) {
+	blockIndent := int(indentation + margin)
+	width := int(ctx.blockStack.Width(ctx))
+	if ctx.blockStack.Current().List {
+		width = listWrapWidth(width, ctx.blockStack.Current().Style)
+		blockIndent = max(blockIndent, currentListContinuationColumn(ctx))
+	}
+	width -= blockIndent
+	if width < 0 {
+		width = 0
+	}
+	return blockIndent, width
+}
+
+func currentListContinuationColumn(ctx RenderContext) int {
+	if ctx.list == nil {
+		return 0
+	}
+	return ctx.list.continuationColumn()
 }
 
 func wrapListItemLine(line string, column, width int) []string {

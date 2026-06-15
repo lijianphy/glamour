@@ -23,6 +23,9 @@ type BlockElement struct {
 func (e *BlockElement) Render(w io.Writer, ctx RenderContext) error {
 	bs := ctx.blockStack
 	bs.Push(*e)
+	if e.List && ctx.list != nil {
+		ctx.list.push()
+	}
 
 	_, _ = renderText(w, bs.Parent().Style.StylePrimitive, e.Style.BlockPrefix)
 	_, _ = renderText(bs.Current().Block, bs.Current().Style.StylePrimitive, e.Style.Prefix)
@@ -32,6 +35,9 @@ func (e *BlockElement) Render(w io.Writer, ctx RenderContext) error {
 // Finish finishes rendering a BlockElement.
 func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 	bs := ctx.blockStack
+	if e.List && ctx.list != nil {
+		defer ctx.list.pop()
+	}
 
 	if e.Margin { //nolint: nestif
 		width := int(bs.Width(ctx))
