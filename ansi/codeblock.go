@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
@@ -225,17 +224,7 @@ func wrapCodeBlockLines(value string, width int) string {
 }
 
 func wrapCodeBlockLine(value string, width int) string {
-	if codeBlockLineStartsWithWhitespace(value) {
-		return hardWrapCodeBlockLine(value, width)
-	}
-	return lipgloss.Wrap(value, width, " ,.;-+|")
-}
-
-func codeBlockLineStartsWithWhitespace(value string) bool {
-	for _, r := range xansi.Strip(value) {
-		return unicode.IsSpace(r)
-	}
-	return false
+	return hardWrapCodeBlockLine(value, width)
 }
 
 func hardWrapCodeBlockLine(value string, width int) string {

@@ -193,6 +193,29 @@ func TestRendererCodeBlockLongLinesWrapInsideBlockIndent(t *testing.T) {
 	}
 }
 
+func TestRendererCodeBlockLongLinesHardWrap(t *testing.T) {
+	options := Options{
+		WordWrap: 20,
+		Styles: StyleConfig{
+			CodeBlock: StyleCodeBlock{
+				Theme: "monokai",
+			},
+		},
+	}
+	source := "```sh\necho alpha beta gamma delta\n```"
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if strings.Contains(line, "echo alpha") {
+			if got := strings.TrimRight(line, " "); got != "echo alpha beta gamm" {
+				t.Fatalf("first code row = %q, want hard wrap:\n%s", got, stripped)
+			}
+			return
+		}
+	}
+	t.Fatalf("rendered code is missing first row:\n%s", stripped)
+}
+
 func TestRendererListTableAvoidsSilentRightEdgeClipping(t *testing.T) {
 	options := listTableOptions(50)
 	source := strings.Join([]string{
