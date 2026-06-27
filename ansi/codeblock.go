@@ -291,9 +291,6 @@ func renderCodeBlockBackground(value string, rules StyleCodeBlock, theme string,
 		return value
 	}
 
-	// Rich's Markdown code blocks use Syntax(..., padding=1), so add the top
-	// padding row here. Chroma already emits a final empty row for fenced blocks.
-	value = "\n" + value
 	parts := strings.SplitAfter(value, "\n")
 	for index, part := range parts {
 		if part == "" {
