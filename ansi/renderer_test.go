@@ -499,6 +499,16 @@ func TestRendererCodeBlockExpandsTabsBeforeRendering(t *testing.T) {
 	}
 }
 
+func TestCodeBlockLexerUsesPlainTextForEmptyLanguage(t *testing.T) {
+	source := "package main\nfunc main() {\n    fmt.Println(1)\n}\n"
+	for _, language := range []string{"", " \t "} {
+		lexer := codeBlockLexer(language, source)
+		if got := lexer.Config().Name; got != "plaintext" {
+			t.Fatalf("codeBlockLexer(%q) = %q, want plaintext", language, got)
+		}
+	}
+}
+
 func TestRendererListCodeBlockAfterNestedListKeepsBackgroundPadding(t *testing.T) {
 	background := "#272822"
 	margin := uint(0)

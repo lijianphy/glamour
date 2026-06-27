@@ -32,8 +32,8 @@ var mutex = sync.Mutex{}
 
 // codeBlockLexerCache avoids Chroma's expensive registry glob matching on
 // every live-stream re-render. Cache both recognized languages and misses:
-// misses must still analyse source so unknown fences keep quick.Highlight's
-// best-effort behavior.
+// misses still analyse source so unknown fences keep quick.Highlight's
+// best-effort behavior. Language-less fences are rendered as plain text.
 var codeBlockLexerCache sync.Map
 
 type cachedCodeBlockLexer struct {
@@ -215,7 +215,7 @@ func highlightCodeBlock(w io.Writer, source, language, formatterName, theme stri
 func codeBlockLexer(language, source string) chroma.Lexer {
 	language = strings.TrimSpace(language)
 	if language == "" {
-		return analysedCodeBlockLexer(source)
+		return plainTextCodeBlockLexer()
 	}
 
 	entry := loadCodeBlockLexer(language)
@@ -223,6 +223,14 @@ func codeBlockLexer(language, source string) chroma.Lexer {
 		return entry.lexer
 	}
 	return analysedCodeBlockLexer(source)
+}
+
+func plainTextCodeBlockLexer() chroma.Lexer {
+	entry := loadCodeBlockLexer("text")
+	if entry.found {
+		return entry.lexer
+	}
+	return chroma.Coalesce(lexers.Fallback)
 }
 
 func loadCodeBlockLexer(language string) cachedCodeBlockLexer {
