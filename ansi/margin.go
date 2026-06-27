@@ -27,6 +27,12 @@ func NewMarginWriter(ctx RenderContext, w io.Writer, rules StyleBlock) *MarginWr
 // NewMarginWriterWithIndentOffset returns a new MarginWriter whose indentation
 // starts after an already established parent block content column.
 func NewMarginWriterWithIndentOffset(ctx RenderContext, w io.Writer, rules StyleBlock, indentOffset int) *MarginWriter {
+	return NewMarginWriterWithIndentOffsetAndWidth(ctx, w, rules, indentOffset, int(ctx.blockStack.Width(ctx)))
+}
+
+// NewMarginWriterWithIndentOffsetAndWidth returns a new MarginWriter with an
+// explicit target width for callers that render inside a parent content box.
+func NewMarginWriterWithIndentOffsetAndWidth(ctx RenderContext, w io.Writer, rules StyleBlock, indentOffset int, width int) *MarginWriter {
 	bs := ctx.blockStack
 
 	var indentation uint
@@ -38,7 +44,7 @@ func NewMarginWriterWithIndentOffset(ctx RenderContext, w io.Writer, rules Style
 		margin = *rules.Margin
 	}
 
-	pw := NewPaddingWriter(w, int(bs.Width(ctx)), func(_ io.Writer) {
+	pw := NewPaddingWriter(w, max(width, 0), func(_ io.Writer) {
 		_, _ = renderText(w, rules.StylePrimitive, " ")
 	})
 
@@ -66,6 +72,26 @@ func NewMarginWriterWithIndentOffset(ctx RenderContext, w io.Writer, rules Style
 		w:  lipgloss.NewWrapWriter(w),
 		iw: iw,
 	}
+}
+
+func marginIndentWidth(rules StyleBlock, indentOffset int) int {
+	if indentOffset < 0 {
+		indentOffset = 0
+	}
+	var indentation uint
+	var margin uint
+	if rules.Indent != nil {
+		indentation = *rules.Indent
+	}
+	if rules.Margin != nil {
+		margin = *rules.Margin
+	}
+	styleIndent := int(indentation + margin)
+	token := " "
+	if rules.IndentToken != nil {
+		token = *rules.IndentToken
+	}
+	return indentOffset + styleIndent*ansi.StringWidth(token)
 }
 
 // Write writes to the margin writer and implements [io.Writer].

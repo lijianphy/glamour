@@ -10,7 +10,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/alecthomas/chroma/v2"
-	"github.com/alecthomas/chroma/v2/quick"
+	"github.com/alecthomas/chroma/v2/formatters"
+	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	xansi "github.com/charmbracelet/x/ansi"
 )
@@ -28,6 +29,17 @@ const (
 // mutex for synchronizing access to the chroma style registry.
 // Related https://github.com/alecthomas/chroma/pull/650
 var mutex = sync.Mutex{}
+
+// codeBlockLexerCache avoids Chroma's expensive registry glob matching on
+// every live-stream re-render. Cache both recognized languages and misses:
+// misses must still analyse source so unknown fences keep quick.Highlight's
+// best-effort behavior.
+var codeBlockLexerCache sync.Map
+
+type cachedCodeBlockLexer struct {
+	lexer chroma.Lexer
+	found bool
+}
 
 // A CodeBlockElement is used to render code blocks.
 type CodeBlockElement struct {
@@ -132,35 +144,102 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 		mutex.Unlock()
 	}
 
-	blockIndent, width := indentedBlockWidth(ctx, indentation, margin)
-	iw := NewIndentWriter(w, blockIndent, func(_ io.Writer) {
-		_, _ = renderText(w, bs.Current().Style.StylePrimitive, " ")
-	})
-	defer iw.Close() //nolint:errcheck
+	layout := childBlockLayout(ctx, indentation, margin)
+	var target io.Writer
+	var blockBuffer bytes.Buffer
+	var iw *IndentWriter
+	if layout.inList {
+		target = &blockBuffer
+	} else {
+		iw = NewIndentWriter(w, layout.indent, func(_ io.Writer) {
+			_, _ = renderText(w, bs.Current().Style.StylePrimitive, " ")
+		})
+		target = iw
+	}
 
 	code := expandCodeBlockTabs(e.Code)
 	if len(theme) > 0 {
-		_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
+		_, _ = renderText(target, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
 
 		var highlighted bytes.Buffer
-		err := quick.Highlight(&highlighted, code, e.Language, formatter, theme)
-		if err != nil {
+		if err := highlightCodeBlock(&highlighted, code, e.Language, formatter, theme); err != nil {
 			return fmt.Errorf("glamour: error highlighting code: %w", err)
 		}
-		if _, err := io.WriteString(iw, renderCodeBlockBackground(highlighted.String(), rules, theme, width)); err != nil {
+		if _, err := io.WriteString(target, renderCodeBlockBackground(highlighted.String(), rules, theme, layout.width)); err != nil {
 			return fmt.Errorf("glamour: error writing highlighted code: %w", err)
 		}
-		_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockSuffix)
-		return nil
+		_, _ = renderText(target, bs.Current().Style.StylePrimitive, rules.BlockSuffix)
+		return finishListChildBlock(w, blockBuffer.String(), layout, iw)
 	}
 
 	// fallback rendering
 	el := &BaseElement{
-		Token: wrapCodeBlockLines(code, width),
+		Token: wrapCodeBlockLines(code, layout.width),
 		Style: rules.StylePrimitive,
 	}
 
-	return el.Render(iw, ctx)
+	if err := el.Render(target, ctx); err != nil {
+		return err
+	}
+	return finishListChildBlock(w, blockBuffer.String(), layout, iw)
+}
+
+func highlightCodeBlock(w io.Writer, source, language, formatterName, theme string) error {
+	// This intentionally mirrors quick.Highlight, but routes lexer selection
+	// through codeBlockLexer so repeated streamed renders don't rescan Chroma's
+	// lexer filename globs for the same fence language.
+	lexer := codeBlockLexer(language, source)
+	formatter := formatters.Get(formatterName)
+	if formatter == nil {
+		formatter = formatters.Fallback
+	}
+	style := styles.Get(theme)
+	if style == nil {
+		style = styles.Fallback
+	}
+
+	iterator, err := lexer.Tokenise(nil, source)
+	if err != nil {
+		return fmt.Errorf("tokenise code block: %w", err)
+	}
+	if err := formatter.Format(w, style, iterator); err != nil {
+		return fmt.Errorf("format code block: %w", err)
+	}
+	return nil
+}
+
+func codeBlockLexer(language, source string) chroma.Lexer {
+	language = strings.TrimSpace(language)
+	if language == "" {
+		return analysedCodeBlockLexer(source)
+	}
+
+	entry := loadCodeBlockLexer(language)
+	if entry.found {
+		return entry.lexer
+	}
+	return analysedCodeBlockLexer(source)
+}
+
+func loadCodeBlockLexer(language string) cachedCodeBlockLexer {
+	if cached, ok := codeBlockLexerCache.Load(language); ok {
+		return cached.(cachedCodeBlockLexer)
+	}
+	lexer := lexers.Get(language)
+	entry := cachedCodeBlockLexer{found: lexer != nil}
+	if entry.found {
+		entry.lexer = chroma.Coalesce(lexer)
+	}
+	cached, _ := codeBlockLexerCache.LoadOrStore(language, entry)
+	return cached.(cachedCodeBlockLexer)
+}
+
+func analysedCodeBlockLexer(source string) chroma.Lexer {
+	lexer := lexers.Analyse(source)
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	return chroma.Coalesce(lexer)
 }
 
 func expandCodeBlockTabs(value string) string {
@@ -187,9 +266,9 @@ func expandCodeBlockTabs(value string) string {
 }
 
 // renderCodeBlockBackground paints and right-pads each highlighted row when the
-// code block style opts in to a background. The caller's indentation writer adds
-// leading indentation outside this background, matching Rich's Markdown code
-// block rendering where list/quote indentation remains unpainted.
+// code block style opts in to a background. The caller applies leading block
+// indentation outside this background, matching Rich's Markdown code block
+// rendering where list/quote indentation remains unpainted.
 func renderCodeBlockBackground(value string, rules StyleCodeBlock, theme string, width int) string {
 	value = wrapCodeBlockLines(value, width)
 	if rules.BackgroundColor == nil {

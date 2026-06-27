@@ -37,8 +37,12 @@ func (e *TableElement) printTableLinks(ctx RenderContext) {
 		return
 	}
 
-	w := ctx.blockStack.Current().Block
+	w := io.Writer(ctx.blockStack.Current().Block)
 	termWidth := int(ctx.blockStack.Width(ctx))
+	if ctx.table.inList {
+		w = &ctx.table.buffer
+		termWidth = ctx.table.width
+	}
 
 	renderLinkText := func(link tableLink, position, padding int) string {
 		token := strings.Repeat(" ", padding)

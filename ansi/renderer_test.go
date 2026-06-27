@@ -453,6 +453,174 @@ func TestRendererCodeBlockExpandsTabsBeforeRendering(t *testing.T) {
 	}
 }
 
+func TestRendererListCodeBlockAfterNestedListKeepsBackgroundPadding(t *testing.T) {
+	background := "#272822"
+	margin := uint(0)
+	options := Options{
+		WordWrap: 96,
+		Styles: StyleConfig{
+			CodeBlock: StyleCodeBlock{
+				StyleBlock: StyleBlock{
+					StylePrimitive: StylePrimitive{
+						BackgroundColor: &background,
+					},
+					Margin: &margin,
+				},
+				Theme: "monokai",
+			},
+			Item:        StylePrimitive{BlockPrefix: "- "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+		},
+	}
+	source := strings.Join([]string{
+		"2. Load tools and capabilities",
+		"    - Bash tool for shell execution",
+		"    - Read tool for file reading",
+		"    - Write tool for file writing",
+		"",
+		"    ```go",
+		"    registry := registry.New()",
+		"    registry.Register(bash.New())",
+		"    registry.Register(read.New())",
+		"    registry.Register(write.New())",
+		"    ```",
+	}, "\n")
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	var line string
+	for candidate := range strings.SplitSeq(stripped, "\n") {
+		if strings.Contains(candidate, "registry := registry.New()") {
+			line = candidate
+			break
+		}
+	}
+	if line == "" {
+		t.Fatalf("rendered code block missing registry line:\n%s", stripped)
+	}
+	if got := leadingSpaceWidth(line); got != 3 {
+		t.Fatalf("code block line indent = %d, want parent list content column:\n%s", got, stripped)
+	}
+	for rawLine := range strings.SplitSeq(got, "\n") {
+		if !strings.Contains(xansi.Strip(rawLine), "registry") {
+			continue
+		}
+		if strings.HasSuffix(rawLine, " ") {
+			t.Fatalf("code block line has unpainted trailing spaces:\n%q", rawLine)
+		}
+		if width := xansi.StringWidth(rawLine); width != options.WordWrap {
+			t.Fatalf("code block line width = %d, want %d:\n%s", width, options.WordWrap, stripped)
+		}
+	}
+}
+
+func TestRendererListBlockquoteCodeBlockKeepsBackgroundPadding(t *testing.T) {
+	background := "#272822"
+	margin := uint(0)
+	quoteIndent := uint(1)
+	quoteToken := "▌ "
+	quoteColor := "magenta"
+	options := Options{
+		WordWrap: 50,
+		Styles: StyleConfig{
+			BlockQuote: StyleBlock{
+				StylePrimitive: StylePrimitive{
+					Color: &quoteColor,
+				},
+				Indent:      &quoteIndent,
+				IndentToken: &quoteToken,
+			},
+			CodeBlock: StyleCodeBlock{
+				StyleBlock: StyleBlock{
+					StylePrimitive: StylePrimitive{
+						BackgroundColor: &background,
+					},
+					Margin: &margin,
+				},
+				Theme: "monokai",
+			},
+			Item: StylePrimitive{BlockPrefix: "- "},
+		},
+	}
+	source := strings.Join([]string{
+		"- item",
+		"",
+		"  > quote",
+		"  >",
+		"  > ```python",
+		"  > def x():",
+		"  >     return 1",
+		"  > ```",
+	}, "\n")
+
+	got := renderMarkdownForTest(t, source, options)
+	rawLine := ""
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.Contains(xansi.Strip(line), "def x():") {
+			rawLine = line
+			break
+		}
+	}
+	if rawLine == "" {
+		t.Fatalf("rendered code block missing def line:\n%s", xansi.Strip(got))
+	}
+	const monokaiBackground = "\x1b[48;2;39;40;34m"
+	index := strings.LastIndex(rawLine, monokaiBackground)
+	if index < 0 {
+		t.Fatalf("nested blockquote code line is missing code background:\n%q", rawLine)
+	}
+	if tail := rawLine[index+len(monokaiBackground):]; !strings.Contains(tail, strings.Repeat(" ", 10)) {
+		t.Fatalf("nested blockquote code line lost background padding:\n%q", rawLine)
+	}
+}
+
+func TestRendererListChildBlockPrefixIsOpaque(t *testing.T) {
+	listIndent := uint(0)
+	quoteIndent := uint(1)
+	quoteToken := "> "
+	options := Options{
+		WordWrap: 40,
+		Styles: StyleConfig{
+			List: StyleList{
+				StyleBlock: StyleBlock{
+					Indent: &listIndent,
+				},
+			},
+			BlockQuote: StyleBlock{
+				StylePrimitive: StylePrimitive{
+					BlockPrefix: "- ",
+				},
+				Indent:      &quoteIndent,
+				IndentToken: &quoteToken,
+			},
+			Item:        StylePrimitive{BlockPrefix: "- "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+		},
+	}
+	source := strings.Join([]string{
+		"1. parent",
+		"",
+		"   > quote",
+		"",
+		"   after blockquote text that should align to parent marker",
+	}, "\n")
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	if strings.Contains(stripped, "glamour-list-opaque") {
+		t.Fatalf("list child block prefix exposed opaque marker:\n%s", stripped)
+	}
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if !strings.Contains(line, "quote") {
+			continue
+		}
+		if leadingSpaceWidth(line) < 3 {
+			t.Fatalf("list child block prefix was not owned by parent list indent:\n%s", stripped)
+		}
+		return
+	}
+	t.Fatalf("rendered blockquote missing quote line:\n%s", stripped)
+}
+
 func TestRendererListTableAvoidsSilentRightEdgeClipping(t *testing.T) {
 	options := listTableOptions(50)
 	source := strings.Join([]string{
@@ -475,6 +643,37 @@ func TestRendererListTableAvoidsSilentRightEdgeClipping(t *testing.T) {
 		if !strings.Contains(stripped, want) {
 			t.Fatalf("list table render missing %q:\n%s", want, stripped)
 		}
+	}
+}
+
+func TestRendererListTableFooterLinksUseListContentWidth(t *testing.T) {
+	options := listTableOptions(50)
+	source := strings.Join([]string{
+		"- item",
+		"",
+		"  | Name | Link |",
+		"  | --- | --- |",
+		"  | A | [very very long link label](https://example.com/abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz) |",
+	}, "\n")
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	foundFooter := false
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if width := xansi.StringWidth(line); width > options.WordWrap {
+			t.Fatalf("list table footer/link line width = %d, want <= %d:\n%q\n%s", width, options.WordWrap, line, stripped)
+		}
+		if strings.Contains(line, "[1]:") {
+			foundFooter = true
+		}
+		if strings.Contains(line, "…") && leadingSpaceWidth(line) < 2 {
+			t.Fatalf("list table footer link wrapped outside the list indent:\n%s", stripped)
+		}
+	}
+	if !foundFooter {
+		t.Fatalf("rendered table footer link missing:\n%s", stripped)
 	}
 }
 

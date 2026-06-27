@@ -27,7 +27,11 @@ func (e *BlockElement) Render(w io.Writer, ctx RenderContext) error {
 		ctx.list.push()
 	}
 
-	_, _ = renderText(w, bs.Parent().Style.StylePrimitive, e.Style.BlockPrefix)
+	blockPrefixTarget := w
+	if bs.Parent().List {
+		blockPrefixTarget = bs.Current().Block
+	}
+	_, _ = renderText(blockPrefixTarget, bs.Parent().Style.StylePrimitive, e.Style.BlockPrefix)
 	_, _ = renderText(bs.Current().Block, bs.Current().Style.StylePrimitive, e.Style.Prefix)
 	return nil
 }
@@ -39,23 +43,43 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 		defer ctx.list.pop()
 	}
 
+	target := w
+	var parentListBlock bytes.Buffer
+	markForParentList := e.List && bs.Parent().List
+	markForParentListChild := !e.List && bs.Parent().List
+	markIndent := 0
+	if markForParentList || markForParentListChild {
+		target = &parentListBlock
+	}
+
 	if e.Margin { //nolint: nestif
 		width := int(bs.Width(ctx))
-		indentOffset := 0
-		if !e.List && bs.Parent().List {
-			indentOffset = listNestedBlockIndent(ctx)
-			width -= indentOffset
+		wrapWidth := width
+		marginWidth := width
+		if markForParentListChild {
+			markIndent = listNestedBlockIndent(ctx)
+			width -= markIndent
 			if width < 0 {
 				width = 0
 			}
+			marginWidth = max(width-marginIndentWidth(bs.Current().Style, 0), 0)
+			wrapWidth = marginWidth
 		}
-		s := lipgloss.Wrap(bs.Current().Block.String(), width, " ,.;-+|")
+		block := bs.Current().Block.String()
+		var s string
 		if e.List {
-			s = wrapListBlock(bs.Current().Block.String(), listWrapWidth(width, bs.Current().Style), ctx.options.Styles)
+			// wrapListBlock already owns list wrapping and opaque child handling.
+			// Keep this direct: pre-wrapping list buffers doubles ANSI scanning
+			// and allocations on every streamed render.
+			s = wrapListBlock(block, listWrapWidth(width, bs.Current().Style), ctx.options.Styles)
+		} else {
+			if markForParentListChild {
+				block = trimTrailingANSIWhitespaceLines(block, wrapWidth)
+			}
+			s = lipgloss.Wrap(block, wrapWidth, " ,.;-+|")
 		}
 
-		mw := NewMarginWriterWithIndentOffset(ctx, w, bs.Current().Style, indentOffset)
-		defer mw.Close() //nolint:errcheck
+		mw := NewMarginWriterWithIndentOffsetAndWidth(ctx, target, bs.Current().Style, 0, marginWidth)
 		if _, err := io.WriteString(mw, s); err != nil {
 			return fmt.Errorf("glamour: error writing to writer: %w", err)
 		}
@@ -65,15 +89,24 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 				return fmt.Errorf("glamour: error writing to writer: %w", err)
 			}
 		}
+		if err := mw.Close(); err != nil {
+			return fmt.Errorf("glamour: error closing margin writer: %w", err)
+		}
 	} else {
-		_, err := bs.Parent().Block.Write(bs.Current().Block.Bytes())
+		_, err := target.Write(bs.Current().Block.Bytes())
 		if err != nil {
 			return fmt.Errorf("glamour: error writing to writer: %w", err)
 		}
 	}
 
-	_, _ = renderText(w, bs.Current().Style.StylePrimitive, e.Style.Suffix)
-	_, _ = renderText(w, bs.Parent().Style.StylePrimitive, e.Style.BlockSuffix)
+	_, _ = renderText(target, bs.Current().Style.StylePrimitive, e.Style.Suffix)
+	_, _ = renderText(target, bs.Parent().Style.StylePrimitive, e.Style.BlockSuffix)
+
+	if markForParentList || markForParentListChild {
+		if _, err := io.WriteString(w, markListOpaqueLines(parentListBlock.String(), markIndent)); err != nil {
+			return fmt.Errorf("glamour: error writing list child block: %w", err)
+		}
+	}
 
 	bs.Current().Block.Reset()
 	bs.Pop()

@@ -20,6 +20,7 @@ type TableElement struct {
 
 type tableRenderState struct {
 	lipgloss *table.Table
+	buffer   bytes.Buffer
 	header   []string
 	row      []string
 	inList   bool
@@ -58,26 +59,30 @@ func (e *TableElement) Render(w io.Writer, ctx RenderContext) error {
 		margin = *rules.Margin
 	}
 
-	prefixIndent := int(indentation + margin)
 	tableIndent := 0
 	width := int(ctx.blockStack.Width(ctx))
 	ctx.table.inList = bs.Current().List
+	var prefixTarget io.Writer
 	if ctx.table.inList {
-		tableIndent, width = indentedBlockWidth(ctx, indentation, margin)
-		prefixIndent = tableIndent
+		layout := childBlockLayout(ctx, indentation, margin)
+		tableIndent = layout.indent
+		width = layout.width
+		prefixTarget = &ctx.table.buffer
+	} else {
+		prefixIndent := int(indentation + margin)
+		iw := NewIndentWriter(w, prefixIndent, func(_ io.Writer) {
+			_, _ = renderText(w, bs.Current().Style.StylePrimitive, " ")
+		})
+		defer iw.Close() //nolint:errcheck
+		prefixTarget = iw
 	}
 	ctx.table.indent = tableIndent
 	ctx.table.width = width
 
-	iw := NewIndentWriter(w, prefixIndent, func(_ io.Writer) {
-		_, _ = renderText(w, bs.Current().Style.StylePrimitive, " ")
-	})
-	defer iw.Close() //nolint:errcheck
-
 	style := bs.With(rules.StylePrimitive)
 
-	_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
-	_, _ = renderText(iw, style, rules.Prefix)
+	_, _ = renderText(prefixTarget, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
+	_, _ = renderText(prefixTarget, style, rules.Prefix)
 
 	wrap := true
 	if ctx.options.TableWrap != nil {
@@ -168,7 +173,9 @@ func (e *TableElement) Finish(_ io.Writer, ctx RenderContext) error {
 	tableString := safeTableString(ctx.table.lipgloss, ctx.table.width, ctx.table.lastColumnCells)
 	tw := io.Writer(ow)
 	var iw *IndentWriter
-	if ctx.table.indent > 0 {
+	if ctx.table.inList {
+		tw = &ctx.table.buffer
+	} else if ctx.table.indent > 0 {
 		iw = NewIndentWriter(ow, ctx.table.indent, func(_ io.Writer) {
 			_, _ = renderText(ow, ctx.blockStack.Current().Style.StylePrimitive, " ")
 		})
@@ -184,9 +191,14 @@ func (e *TableElement) Finish(_ io.Writer, ctx RenderContext) error {
 			return fmt.Errorf("glamour: error closing table indentation: %w", err)
 		}
 	}
-	_, _ = renderText(ow, ctx.blockStack.Current().Style.StylePrimitive, rules.BlockSuffix)
+	_, _ = renderText(tw, ctx.blockStack.Current().Style.StylePrimitive, rules.BlockSuffix)
 
 	e.printTableLinks(ctx)
+	if ctx.table.inList {
+		if _, err := io.WriteString(ow, markListOpaqueLines(ctx.table.buffer.String(), ctx.table.indent)); err != nil {
+			return fmt.Errorf("glamour: error writing table block to buffer: %w", err)
+		}
+	}
 
 	return nil
 }
@@ -372,6 +384,7 @@ func (s *tableRenderState) finishRows() {
 
 func (s *tableRenderState) reset() {
 	s.lipgloss = nil
+	s.buffer.Reset()
 	s.header = nil
 	s.row = nil
 	s.tableImages = nil
