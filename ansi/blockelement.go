@@ -12,16 +12,25 @@ import (
 // After all children have been rendered into it, it applies indentation and
 // margins around them and writes everything to the parent rendering buffer.
 type BlockElement struct {
-	Block   *bytes.Buffer
-	Style   StyleBlock
-	Margin  bool
-	Newline bool
-	List    bool
+	Block *bytes.Buffer
+	Style StyleBlock
+	// IndentOffset is an already-owned left indent, such as a parent list
+	// item's content column.
+	IndentOffset int
+	Margin       bool
+	Newline      bool
+	List         bool
+	// PreserveChildren keeps child-rendered rows intact instead of rewrapping
+	// the whole buffer at finish time.
+	PreserveChildren bool
 }
 
 // Render renders a BlockElement.
 func (e *BlockElement) Render(w io.Writer, ctx RenderContext) error {
 	bs := ctx.blockStack
+	if !e.List && bs.Len() > 0 && bs.Current().List && e.IndentOffset == 0 {
+		e.IndentOffset = listNestedBlockIndent(ctx)
+	}
 	bs.Push(*e)
 	if e.List && ctx.list != nil {
 		ctx.list.push()
@@ -57,13 +66,15 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 		wrapWidth := width
 		marginWidth := width
 		if markForParentListChild {
-			markIndent = listNestedBlockIndent(ctx)
-			width -= markIndent
-			if width < 0 {
-				width = 0
+			if bs.Current().IndentOffset == 0 {
+				markIndent = listNestedBlockIndent(ctx)
+				width -= markIndent
+				if width < 0 {
+					width = 0
+				}
 			}
-			marginWidth = max(width-marginIndentWidth(bs.Current().Style, 0), 0)
-			wrapWidth = marginWidth
+			marginWidth = width
+			wrapWidth = width
 		}
 		block := bs.Current().Block.String()
 		var s string
@@ -72,6 +83,8 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 			// Keep this direct: pre-wrapping list buffers doubles ANSI scanning
 			// and allocations on every streamed render.
 			s = wrapListBlock(block, listWrapWidth(width, bs.Current().Style), ctx.options.Styles)
+		} else if e.PreserveChildren {
+			s = block
 		} else {
 			if markForParentListChild {
 				block = trimTrailingANSIWhitespaceLines(block, wrapWidth)
@@ -79,7 +92,7 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 			s = lipgloss.Wrap(block, wrapWidth, " ,.;-+|")
 		}
 
-		mw := NewMarginWriterWithIndentOffsetAndWidth(ctx, target, bs.Current().Style, 0, marginWidth)
+		mw := NewMarginWriterWithIndentOffsetAndWidth(ctx, target, bs.Current().Style, bs.Current().IndentOffset, marginWidth)
 		if _, err := io.WriteString(mw, s); err != nil {
 			return fmt.Errorf("glamour: error writing to writer: %w", err)
 		}

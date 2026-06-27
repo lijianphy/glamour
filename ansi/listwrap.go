@@ -106,7 +106,7 @@ func childBlockLayout(ctx RenderContext, indentation, margin uint) listChildBloc
 		layout.inList = true
 		layout.width = listWrapWidth(layout.width, ctx.blockStack.Current().Style)
 		layout.indent = listNestedBlockIndent(ctx)
-	} else if ctx.blockStack.Parent().List {
+	} else if ctx.blockStack.Parent().List && ctx.blockStack.Current().IndentOffset == 0 {
 		layout.width -= listNestedBlockIndent(ctx)
 		layout.width -= marginIndentWidth(ctx.blockStack.Current().Style, 0)
 	}

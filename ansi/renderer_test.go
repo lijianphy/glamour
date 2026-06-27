@@ -620,6 +620,115 @@ func TestRendererListBlockquoteCodeBlockKeepsBackgroundPadding(t *testing.T) {
 	}
 }
 
+func TestRendererBlockquoteNestedBlockElementsKeepPrefixes(t *testing.T) {
+	background := "#272822"
+	margin := uint(0)
+	quoteIndent := uint(1)
+	quoteToken := "│ "
+	centerSeparator := "┼"
+	columnSeparator := "│"
+	rowSeparator := "─"
+	options := Options{
+		WordWrap: 80,
+		Styles: StyleConfig{
+			BlockQuote: StyleBlock{
+				Indent:      &quoteIndent,
+				IndentToken: &quoteToken,
+			},
+			CodeBlock: StyleCodeBlock{
+				StyleBlock: StyleBlock{
+					StylePrimitive: StylePrimitive{
+						BackgroundColor: &background,
+					},
+					Margin: &margin,
+				},
+				Theme: "monokai",
+			},
+			Table: StyleTable{
+				CenterSeparator: &centerSeparator,
+				ColumnSeparator: &columnSeparator,
+				RowSeparator:    &rowSeparator,
+			},
+			Item:        StylePrimitive{BlockPrefix: "- "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+		},
+	}
+	source := strings.Join([]string{
+		"> | Left | Center | Right |",
+		"> |:-----|:------:|------:|",
+		"> | a    |   b    |     c |",
+		">",
+		"> ```go",
+		"> func main() {",
+		">     fmt.Println(\"hello from blockquote\")",
+		"> }",
+		"> ```",
+		"",
+		"1. Top-level ordered item.",
+		"",
+		"   > > Double-quoted inside the list item.",
+		"   > >",
+		"   > > ```python",
+		"   > > def deep():",
+		"   > >     return \"deeply nested\"",
+		"   > > ```",
+		"   > >",
+		"   > > | Col1 | Col2 |",
+		"   > > |------|------|",
+		"   > > |  1   |  2   |",
+		"   >",
+		"   > Back to single-quote level inside list.",
+	}, "\n")
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if width := xansi.StringWidth(line); width > options.WordWrap {
+			t.Fatalf("blockquote child line width = %d, want <= %d: %q\n%s", width, options.WordWrap, line, stripped)
+		}
+	}
+
+	var separators []string
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if strings.Contains(line, "┼") {
+			separators = append(separators, line)
+		}
+	}
+	if len(separators) != 2 {
+		t.Fatalf("table separator count = %d, want 2:\n%s", len(separators), stripped)
+	}
+	if !strings.HasPrefix(separators[0], "│ ") {
+		t.Fatalf("top-level quoted table separator lost quote prefix:\n%s", stripped)
+	}
+	if !strings.HasPrefix(separators[1], "   │ │ ") {
+		t.Fatalf("nested quoted table separator lost list/quote prefixes:\n%s", stripped)
+	}
+	for _, want := range []string{
+		"│ func main()",
+		"   │ │ def deep():",
+		"   │ Back to single-quote level inside list.",
+	} {
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("blockquote child render missing %q:\n%s", want, stripped)
+		}
+	}
+
+	const monokaiBackground = "\x1b[48;2;39;40;34m"
+	rawLine := ""
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.Contains(xansi.Strip(line), "def deep():") {
+			rawLine = line
+			break
+		}
+	}
+	if rawLine == "" {
+		t.Fatalf("rendered code block missing def line:\n%s", stripped)
+	}
+	if !strings.Contains(rawLine, monokaiBackground) {
+		t.Fatalf("nested quoted code line lost code background:\n%q", rawLine)
+	}
+}
+
 func TestRendererListChildBlockPrefixIsOpaque(t *testing.T) {
 	listIndent := uint(0)
 	quoteIndent := uint(1)
