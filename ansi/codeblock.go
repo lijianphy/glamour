@@ -21,6 +21,8 @@ const (
 
 	// The chroma formatter name used for rendering.
 	chromaFormatter = "terminal256"
+
+	codeBlockTabWidth = 4
 )
 
 // mutex for synchronizing access to the chroma style registry.
@@ -136,11 +138,12 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	})
 	defer iw.Close() //nolint:errcheck
 
+	code := expandCodeBlockTabs(e.Code)
 	if len(theme) > 0 {
 		_, _ = renderText(iw, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
 
 		var highlighted bytes.Buffer
-		err := quick.Highlight(&highlighted, e.Code, e.Language, formatter, theme)
+		err := quick.Highlight(&highlighted, code, e.Language, formatter, theme)
 		if err != nil {
 			return fmt.Errorf("glamour: error highlighting code: %w", err)
 		}
@@ -153,11 +156,34 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 
 	// fallback rendering
 	el := &BaseElement{
-		Token: wrapCodeBlockLines(e.Code, width),
+		Token: wrapCodeBlockLines(code, width),
 		Style: rules.StylePrimitive,
 	}
 
 	return el.Render(iw, ctx)
+}
+
+func expandCodeBlockTabs(value string) string {
+	if !strings.Contains(value, "\t") {
+		return value
+	}
+	var out strings.Builder
+	column := 0
+	for _, r := range value {
+		switch r {
+		case '\t':
+			spaces := codeBlockTabWidth - column%codeBlockTabWidth
+			out.WriteString(strings.Repeat(" ", spaces))
+			column += spaces
+		case '\n', '\r':
+			out.WriteRune(r)
+			column = 0
+		default:
+			out.WriteRune(r)
+			column += xansi.StringWidth(string(r))
+		}
+	}
+	return out.String()
 }
 
 // renderCodeBlockBackground paints and right-pads each highlighted row when the

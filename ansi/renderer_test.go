@@ -433,6 +433,26 @@ func TestRendererCodeBlockLongLinesHardWrap(t *testing.T) {
 	t.Fatalf("rendered code is missing first row:\n%s", stripped)
 }
 
+func TestRendererCodeBlockExpandsTabsBeforeRendering(t *testing.T) {
+	options := Options{
+		WordWrap: 56,
+		Styles: StyleConfig{
+			CodeBlock: StyleCodeBlock{
+				Theme: "monokai",
+			},
+		},
+	}
+	source := "```go\nfunc main() {\n\tfmt.Println(\"ok\")\n}\n```"
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	if strings.Contains(stripped, "\t") {
+		t.Fatalf("rendered code block kept tab:\n%q", stripped)
+	}
+	if !strings.Contains(stripped, "    fmt.Println(\"ok\")") {
+		t.Fatalf("rendered code block did not expand tab to spaces:\n%s", stripped)
+	}
+}
+
 func TestRendererListTableAvoidsSilentRightEdgeClipping(t *testing.T) {
 	options := listTableOptions(50)
 	source := strings.Join([]string{
