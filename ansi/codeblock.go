@@ -165,7 +165,11 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 		if err := highlightCodeBlock(&highlighted, code, e.Language, formatter, theme); err != nil {
 			return fmt.Errorf("glamour: error highlighting code: %w", err)
 		}
-		if _, err := io.WriteString(target, renderCodeBlockBackground(highlighted.String(), rules, theme, layout.width)); err != nil {
+		highlightedCode := highlighted.String()
+		if styleIsFaint(cascadeStylePrimitives(bs.Current().Style.StylePrimitive, rules.StylePrimitive)) {
+			highlightedCode = forceFaintANSI(highlightedCode)
+		}
+		if _, err := io.WriteString(target, renderCodeBlockBackground(highlightedCode, rules, theme, layout.width)); err != nil {
 			return fmt.Errorf("glamour: error writing highlighted code: %w", err)
 		}
 		_, _ = renderText(target, bs.Current().Style.StylePrimitive, rules.BlockSuffix)
@@ -368,6 +372,37 @@ func codeBlockBackgroundSequence(rules StyleCodeBlock, theme string) string {
 func reapplyBackgroundAfterReset(value, backgroundSGR string) string {
 	value = strings.ReplaceAll(value, "\x1b[0m", "\x1b[0m"+backgroundSGR)
 	return strings.ReplaceAll(value, "\x1b[m", "\x1b[m"+backgroundSGR)
+}
+
+func styleIsFaint(style StylePrimitive) bool {
+	return style.Faint != nil && *style.Faint
+}
+
+func forceFaintANSI(value string) string {
+	const faintSGR = "\x1b[2m"
+	if value == "" {
+		return value
+	}
+	var builder strings.Builder
+	builder.Grow(len(value) + strings.Count(value, "\x1b[")*len(faintSGR) + len(faintSGR))
+	builder.WriteString(faintSGR)
+	for {
+		start := strings.Index(value, "\x1b[")
+		if start < 0 {
+			builder.WriteString(value)
+			return builder.String()
+		}
+		builder.WriteString(value[:start])
+		value = value[start:]
+		end := strings.IndexByte(value, 'm')
+		if end < 0 {
+			builder.WriteString(value)
+			return builder.String()
+		}
+		builder.WriteString(value[:end+1])
+		builder.WriteString(faintSGR)
+		value = value[end+1:]
+	}
 }
 
 func backgroundSequence(colour chroma.Colour) string {

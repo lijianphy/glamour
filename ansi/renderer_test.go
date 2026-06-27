@@ -291,6 +291,52 @@ func TestRendererNestedListBlocksUseListLevelIndent(t *testing.T) {
 	assertLineIndent("> Quote", 8)
 }
 
+func TestRendererBlockquoteFaintPreservesDescendantStyles(t *testing.T) {
+	quoteIndent := uint(1)
+	quoteToken := "│ "
+	faint := true
+	bold := true
+	italic := true
+	underline := true
+	codeColor := "cyan"
+	linkColor := "blue"
+	codeBackground := "black"
+	options := Options{
+		WordWrap: 80,
+		Styles: StyleConfig{
+			BlockQuote: StyleBlock{
+				StylePrimitive:   StylePrimitive{Faint: &faint},
+				Indent:           &quoteIndent,
+				IndentToken:      &quoteToken,
+				IndentTokenStyle: &StylePrimitive{Faint: &faint},
+			},
+			Strong:   StylePrimitive{Bold: &bold},
+			Emph:     StylePrimitive{Italic: &italic},
+			Code:     StyleBlock{StylePrimitive: StylePrimitive{Color: &codeColor, BackgroundColor: &codeBackground}},
+			Link:     StylePrimitive{Color: &linkColor, Underline: &underline},
+			LinkText: StylePrimitive{Color: &linkColor},
+		},
+	}
+	source := "> quote **bold** _emph_ `code` [link](https://example.com)"
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	if !strings.Contains(stripped, "│ quote bold emph code link https://example.com") {
+		t.Fatalf("blockquote rendered unexpected text:\n%s", stripped)
+	}
+	if !strings.Contains(got, "\x1b[2m│ ") {
+		t.Fatalf("blockquote prefix is not faint-styled:\n%q", got)
+	}
+	for _, want := range []string{"2", "1", "3", "4", "38", "48"} {
+		if !containsSGRField(got, want) {
+			t.Fatalf("blockquote render is missing SGR field %q:\n%q", want, got)
+		}
+	}
+	if !strings.Contains(got, "\x1b]8;") {
+		t.Fatalf("blockquote render lost hyperlink formatting:\n%q", got)
+	}
+}
+
 func TestRendererNestedListBlocksHonorNonzeroListLevelIndent(t *testing.T) {
 	indent := uint(2)
 	codeMargin := uint(5)
@@ -745,6 +791,28 @@ func renderMarkdownForTest(t *testing.T, source string, options Options) string 
 		t.Fatal(err)
 	}
 	return buf.String()
+}
+
+func containsSGRField(value, want string) bool {
+	for {
+		start := strings.Index(value, "\x1b[")
+		if start < 0 {
+			return false
+		}
+		value = value[start+2:]
+		end := strings.IndexByte(value, 'm')
+		if end < 0 {
+			return false
+		}
+		for _, field := range strings.FieldsFunc(value[:end], func(r rune) bool {
+			return r == ';' || r == ':'
+		}) {
+			if field == want {
+				return true
+			}
+		}
+		value = value[end+1:]
+	}
 }
 
 func TestRendererIssues(t *testing.T) {

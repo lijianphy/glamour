@@ -61,7 +61,11 @@ func NewMarginWriterWithIndentOffsetAndWidth(ctx RenderContext, w io.Writer, rul
 		if indentUnit < baseIndent {
 			token = " "
 		}
-		_, _ = renderText(w, bs.Parent().Style.StylePrimitive, token)
+		style := bs.Parent().Style.StylePrimitive
+		if rules.IndentTokenStyle != nil {
+			style = cascadeStylePrimitives(style, *rules.IndentTokenStyle)
+		}
+		_, _ = renderText(w, style, token)
 		indentUnit++
 		if indentUnit >= totalIndent {
 			indentUnit = 0

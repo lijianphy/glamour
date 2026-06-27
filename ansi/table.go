@@ -107,9 +107,8 @@ func (e *TableElement) setStyles(ctx RenderContext) {
 	rules := ctx.options.Styles.Table
 	compact := ctx.table.inList && rules.Margin == nil && ctx.table.compactTable(ctx.table.width)
 	ctx.table.lipgloss = ctx.table.lipgloss.StyleFunc(func(row, col int) lipgloss.Style {
-		st := lipglossStyleFromPrimitive(
-			tableCellStylePrimitive(rules, row == table.HeaderRow),
-		).Inline(false)
+		style := inheritCurrentFaint(ctx, tableCellStylePrimitive(rules, row == table.HeaderRow))
+		st := lipglossStyleFromPrimitive(style).Inline(false)
 		// Default Styles
 		if compact {
 			st = st.Margin(0, 0)
@@ -150,9 +149,8 @@ func (e *TableElement) setBorders(ctx RenderContext) {
 		}
 	}
 	ctx.table.lipgloss.Border(border)
-	ctx.table.lipgloss.BorderStyle(
-		lipglossStyleFromPrimitive(cascadeStylePrimitives(rules.StylePrimitive, rules.Border)),
-	)
+	borderStyle := inheritCurrentFaint(ctx, cascadeStylePrimitives(rules.StylePrimitive, rules.Border))
+	ctx.table.lipgloss.BorderStyle(lipglossStyleFromPrimitive(borderStyle))
 	ctx.table.lipgloss.BorderTop(false)
 	ctx.table.lipgloss.BorderLeft(false)
 	ctx.table.lipgloss.BorderRight(false)
@@ -230,7 +228,7 @@ func (e *TableHeadElement) Finish(_ io.Writer, ctx RenderContext) error {
 // Render renders a TableCellElement.
 func (e *TableCellElement) Render(_ io.Writer, ctx RenderContext) error {
 	var b bytes.Buffer
-	style := tableCellStylePrimitive(ctx.options.Styles.Table, e.Head)
+	style := inheritCurrentFaint(ctx, tableCellStylePrimitive(ctx.options.Styles.Table, e.Head))
 	for _, child := range e.Children {
 		if r, ok := child.(StyleOverriderElementRenderer); ok {
 			if err := r.StyleOverrideRender(&b, ctx, style); err != nil {
@@ -400,6 +398,14 @@ func tableCellStylePrimitive(rules StyleTable, head bool) StylePrimitive {
 	style := cascadeStylePrimitives(rules.StylePrimitive, rules.Cell)
 	if head {
 		style = cascadeStylePrimitives(style, rules.Header)
+	}
+	return style
+}
+
+func inheritCurrentFaint(ctx RenderContext, style StylePrimitive) StylePrimitive {
+	current := ctx.blockStack.Current().Style.StylePrimitive
+	if styleIsFaint(current) && style.Faint == nil {
+		style.Faint = current.Faint
 	}
 	return style
 }
