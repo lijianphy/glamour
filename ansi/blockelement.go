@@ -41,12 +41,20 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 
 	if e.Margin { //nolint: nestif
 		width := int(bs.Width(ctx))
+		indentOffset := 0
+		if !e.List && bs.Parent().List {
+			indentOffset = listNestedBlockIndent(ctx)
+			width -= indentOffset
+			if width < 0 {
+				width = 0
+			}
+		}
 		s := lipgloss.Wrap(bs.Current().Block.String(), width, " ,.;-+|")
 		if e.List {
 			s = wrapListBlock(bs.Current().Block.String(), listWrapWidth(width, bs.Current().Style), ctx.options.Styles)
 		}
 
-		mw := NewMarginWriter(ctx, w, bs.Current().Style)
+		mw := NewMarginWriterWithIndentOffset(ctx, w, bs.Current().Style, indentOffset)
 		defer mw.Close() //nolint:errcheck
 		if _, err := io.WriteString(mw, s); err != nil {
 			return fmt.Errorf("glamour: error writing to writer: %w", err)

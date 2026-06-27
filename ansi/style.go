@@ -82,6 +82,8 @@ type StyleCodeBlock struct {
 // StyleList holds the style settings for a list.
 type StyleList struct {
 	StyleBlock
+	// LevelIndent is added to the parent list item's content column when
+	// indenting a nested list.
 	LevelIndent uint `json:"level_indent,omitempty"`
 }
 

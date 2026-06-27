@@ -21,6 +21,12 @@ type MarginWriter struct {
 
 // NewMarginWriter returns a new MarginWriter.
 func NewMarginWriter(ctx RenderContext, w io.Writer, rules StyleBlock) *MarginWriter {
+	return NewMarginWriterWithIndentOffset(ctx, w, rules, 0)
+}
+
+// NewMarginWriterWithIndentOffset returns a new MarginWriter whose indentation
+// starts after an already established parent block content column.
+func NewMarginWriterWithIndentOffset(ctx RenderContext, w io.Writer, rules StyleBlock, indentOffset int) *MarginWriter {
 	bs := ctx.blockStack
 
 	var indentation uint
@@ -40,8 +46,20 @@ func NewMarginWriter(ctx RenderContext, w io.Writer, rules StyleBlock) *MarginWr
 	if rules.IndentToken != nil {
 		ic = *rules.IndentToken
 	}
-	iw := NewIndentWriter(pw, int(indentation+margin), func(_ io.Writer) {
-		_, _ = renderText(w, bs.Parent().Style.StylePrimitive, ic)
+	baseIndent := max(indentOffset, 0)
+	styleIndent := int(indentation + margin)
+	totalIndent := baseIndent + styleIndent
+	indentUnit := 0
+	iw := NewIndentWriter(pw, totalIndent, func(_ io.Writer) {
+		token := ic
+		if indentUnit < baseIndent {
+			token = " "
+		}
+		_, _ = renderText(w, bs.Parent().Style.StylePrimitive, token)
+		indentUnit++
+		if indentUnit >= totalIndent {
+			indentUnit = 0
+		}
 	})
 
 	return &MarginWriter{

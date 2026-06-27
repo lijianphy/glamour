@@ -81,7 +81,7 @@ func indentedBlockWidth(ctx RenderContext, indentation, margin uint) (int, int) 
 	width := int(ctx.blockStack.Width(ctx))
 	if ctx.blockStack.Current().List {
 		width = listWrapWidth(width, ctx.blockStack.Current().Style)
-		blockIndent = max(blockIndent, currentListContinuationColumn(ctx))
+		blockIndent = listNestedBlockIndent(ctx)
 	}
 	width -= blockIndent
 	if width < 0 {
@@ -95,6 +95,22 @@ func currentListContinuationColumn(ctx RenderContext) int {
 		return 0
 	}
 	return ctx.list.continuationColumn()
+}
+
+func listBlockContentIndent(ctx RenderContext) int {
+	return max(currentListContinuationColumn(ctx), 0)
+}
+
+func listNestedBlockIndent(ctx RenderContext) int {
+	return listBlockContentIndent(ctx) + int(ctx.options.Styles.List.LevelIndent)
+}
+
+// nestedListIndent returns the indentation for a child list relative to its
+// parent list block. The child marker starts at the parent item's content
+// column plus the configured level offset, so wide task or ordered markers do
+// not collapse the visual hierarchy.
+func nestedListIndent(ctx RenderContext) uint {
+	return uint(listNestedBlockIndent(ctx))
 }
 
 func wrapListItemLine(line string, column, width int) []string {

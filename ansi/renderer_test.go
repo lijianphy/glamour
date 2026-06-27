@@ -121,7 +121,7 @@ func TestRendererListItemsUseHangingIndent(t *testing.T) {
 
 	got := renderMarkdownForTest(t, source, options)
 	stripped := xansi.Strip(got)
-	for _, want := range []string{"  1. Capture", "  2. Truncation", "  3. Streaming", "  • Prepare", "    • Capture", "    • Save"} {
+	for _, want := range []string{"  1. Capture", "  2. Truncation", "  3. Streaming", "  • Prepare", "      • Capture", "      • Save"} {
 		if !strings.Contains(stripped, want) {
 			t.Fatalf("rendered list missing %q:\n%s", want, stripped)
 		}
@@ -152,6 +152,223 @@ func TestRendererListItemsUseHangingIndent(t *testing.T) {
 	if continuations == 0 {
 		t.Fatalf("test did not produce list continuation lines:\n%s", stripped)
 	}
+}
+
+func TestRendererNestedListsAlignToParentContentColumn(t *testing.T) {
+	indent := uint(2)
+	options := Options{
+		WordWrap: 80,
+		Styles: StyleConfig{
+			List: StyleList{
+				StyleBlock: StyleBlock{
+					Indent: &indent,
+				},
+				LevelIndent: 0,
+			},
+			Item:        StylePrimitive{BlockPrefix: "• "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+			Task: StyleTask{
+				Ticked:   "[x] ",
+				Unticked: "[ ] ",
+			},
+		},
+	}
+	source := strings.Join([]string{
+		"- [ ] Prepare simulation inputs",
+		"  - create `run.in`",
+		"  - create `nep.in`",
+		"- [x] Validate output",
+		"  - check `thermo.out`",
+		"",
+		"9. Nine parent",
+		"   - child nine",
+		"10. Ten parent",
+		"    - child ten",
+	}, "\n")
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	for _, want := range []string{
+		"  [ ] Prepare simulation inputs",
+		"      • create run.in",
+		"      • create nep.in",
+		"  [x] Validate output",
+		"      • check thermo.out",
+		"  9. Nine parent",
+		"     • child nine",
+		"  10. Ten parent",
+		"      • child ten",
+	} {
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("rendered nested list missing %q:\n%s", want, stripped)
+		}
+	}
+}
+
+func TestRendererNestedListBlocksUseListLevelIndent(t *testing.T) {
+	indent := uint(2)
+	codeMargin := uint(5)
+	levelIndent := uint(0)
+	tableMargin := uint(0)
+	quoteIndent := uint(1)
+	quoteToken := "> "
+	options := Options{
+		WordWrap: 60,
+		Styles: StyleConfig{
+			BlockQuote: StyleBlock{
+				Indent:      &quoteIndent,
+				IndentToken: &quoteToken,
+			},
+			List: StyleList{
+				StyleBlock: StyleBlock{
+					Indent: &indent,
+				},
+				LevelIndent: levelIndent,
+			},
+			Item:        StylePrimitive{BlockPrefix: "- "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+			Task: StyleTask{
+				Ticked:   "[x] ",
+				Unticked: "[ ] ",
+			},
+			CodeBlock: StyleCodeBlock{
+				StyleBlock: StyleBlock{
+					Margin: &codeMargin,
+				},
+			},
+			Table: StyleTable{
+				StyleBlock: StyleBlock{
+					Margin: &tableMargin,
+				},
+			},
+		},
+	}
+	source := strings.Join([]string{
+		"- [ ] Parent",
+		"  - Child",
+		"",
+		"    ```sh",
+		"    echo hi",
+		"    ```",
+		"",
+		"    | A | B |",
+		"    | - | - |",
+		"    | x | y |",
+		"",
+		"    > Quote",
+	}, "\n")
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	for _, want := range []string{
+		"  [ ] Parent",
+		"      - Child",
+	} {
+		if !strings.Contains(stripped, want) {
+			t.Fatalf("rendered nested block fixture missing %q:\n%s", want, stripped)
+		}
+	}
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if width := xansi.StringWidth(line); width > options.WordWrap {
+			t.Fatalf("rendered line width = %d, want <= %d: %q\n%s", width, options.WordWrap, line, stripped)
+		}
+	}
+
+	assertLineIndent := func(contains string, want int) {
+		t.Helper()
+		for line := range strings.SplitSeq(stripped, "\n") {
+			if strings.Contains(line, contains) {
+				if got := leadingSpaceWidth(line); got != want {
+					t.Fatalf("line %q indent = %d, want %d\n%s", contains, got, want, stripped)
+				}
+				return
+			}
+		}
+		t.Fatalf("rendered nested block fixture missing line containing %q:\n%s", contains, stripped)
+	}
+	assertLineIndent("echo hi", 8)
+	assertLineIndent("┼", 8)
+	assertLineIndent("> Quote", 8)
+}
+
+func TestRendererNestedListBlocksHonorNonzeroListLevelIndent(t *testing.T) {
+	indent := uint(2)
+	codeMargin := uint(5)
+	levelIndent := uint(2)
+	tableMargin := uint(0)
+	quoteIndent := uint(1)
+	quoteToken := "> "
+	options := Options{
+		WordWrap: 80,
+		Styles: StyleConfig{
+			BlockQuote: StyleBlock{
+				Indent:      &quoteIndent,
+				IndentToken: &quoteToken,
+			},
+			List: StyleList{
+				StyleBlock: StyleBlock{
+					Indent: &indent,
+				},
+				LevelIndent: levelIndent,
+			},
+			Item: StylePrimitive{BlockPrefix: "- "},
+			Task: StyleTask{
+				Ticked:   "[x] ",
+				Unticked: "[ ] ",
+			},
+			CodeBlock: StyleCodeBlock{
+				StyleBlock: StyleBlock{
+					Margin: &codeMargin,
+				},
+			},
+			Table: StyleTable{
+				StyleBlock: StyleBlock{
+					Margin: &tableMargin,
+				},
+			},
+		},
+	}
+	source := strings.Join([]string{
+		"- [ ] Parent",
+		"  - Child",
+		"",
+		"    ```sh",
+		"    echo hi",
+		"    ```",
+		"",
+		"    | A | B |",
+		"    | - | - |",
+		"    | x | y |",
+		"",
+		"    > Quote",
+	}, "\n")
+
+	got := renderMarkdownForTest(t, source, options)
+	stripped := xansi.Strip(got)
+	if !strings.Contains(stripped, "        - Child") {
+		t.Fatalf("rendered child list did not honor level indent:\n%s", stripped)
+	}
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if width := xansi.StringWidth(line); width > options.WordWrap {
+			t.Fatalf("rendered line width = %d, want <= %d: %q\n%s", width, options.WordWrap, line, stripped)
+		}
+	}
+
+	assertLineIndent := func(contains string, want int) {
+		t.Helper()
+		for line := range strings.SplitSeq(stripped, "\n") {
+			if strings.Contains(line, contains) {
+				if got := leadingSpaceWidth(line); got != want {
+					t.Fatalf("line %q indent = %d, want %d\n%s", contains, got, want, stripped)
+				}
+				return
+			}
+		}
+		t.Fatalf("rendered nested block fixture missing line containing %q:\n%s", contains, stripped)
+	}
+	assertLineIndent("echo hi", 12)
+	assertLineIndent("┼", 12)
+	assertLineIndent("> Quote", 12)
 }
 
 func TestRendererCodeBlockLongLinesWrapInsideBlockIndent(t *testing.T) {

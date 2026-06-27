@@ -105,7 +105,7 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		n := node.Parent()
 		for n != nil {
 			if n.Kind() == ast.KindList {
-				i := ctx.options.Styles.List.LevelIndent
+				i := nestedListIndent(ctx)
 				s.Indent = &i
 				break
 			}
