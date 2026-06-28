@@ -34,7 +34,11 @@ var mutex = sync.Mutex{}
 // every live-stream re-render. Cache both recognized languages and misses:
 // misses still analyse source so unknown fences keep quick.Highlight's
 // best-effort behavior. Language-less fences are rendered as plain text.
-var codeBlockLexerCache sync.Map
+var (
+	codeBlockLexerCache     sync.Map
+	codeBlockFormatterCache sync.Map
+	codeBlockStyleCache     sync.Map
+)
 
 type cachedCodeBlockLexer struct {
 	lexer chroma.Lexer
@@ -142,6 +146,9 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 				}))
 		}
 		mutex.Unlock()
+		if !ok {
+			codeBlockStyleCache.Delete(theme)
+		}
 	}
 
 	layout := childBlockLayout(ctx, indentation, margin)
@@ -161,15 +168,12 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	if len(theme) > 0 {
 		_, _ = renderText(target, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
 
-		var highlighted bytes.Buffer
-		if err := highlightCodeBlock(&highlighted, code, e.Language, formatter, theme); err != nil {
-			return fmt.Errorf("glamour: error highlighting code: %w", err)
+		faint := styleIsFaint(cascadeStylePrimitives(bs.Current().Style.StylePrimitive, rules.StylePrimitive))
+		rendered, err := renderCachedCodeBlock(ctx, code, e.Language, formatter, theme, rules, layout.width, faint)
+		if err != nil {
+			return err
 		}
-		highlightedCode := highlighted.String()
-		if styleIsFaint(cascadeStylePrimitives(bs.Current().Style.StylePrimitive, rules.StylePrimitive)) {
-			highlightedCode = forceFaintANSI(highlightedCode)
-		}
-		if _, err := io.WriteString(target, renderCodeBlockBackground(highlightedCode, rules, theme, layout.width)); err != nil {
+		if _, err := io.WriteString(target, rendered); err != nil {
 			return fmt.Errorf("glamour: error writing highlighted code: %w", err)
 		}
 		_, _ = renderText(target, bs.Current().Style.StylePrimitive, rules.BlockSuffix)
@@ -188,19 +192,55 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	return finishListChildBlock(w, blockBuffer.String(), layout, iw)
 }
 
+func renderCachedCodeBlock(ctx RenderContext, source, language, formatter, theme string, rules StyleCodeBlock, width int, faint bool) (string, error) {
+	background := ""
+	if rules.BackgroundColor != nil {
+		background = *rules.BackgroundColor
+	}
+	language = strings.TrimSpace(language)
+	key := newCodeBlockCacheKey(source, language, formatter, theme, background, width, faint)
+	if rendered, ok := ctx.codeBlocks.Get(key); ok {
+		return rendered, nil
+	}
+
+	var highlightedCode string
+	if isPlainTextCodeBlockLanguage(language) {
+		var highlighted bytes.Buffer
+		if err := renderPlainCodeBlock(&highlighted, source, formatter, theme); err != nil {
+			return "", fmt.Errorf("glamour: error rendering plain code: %w", err)
+		}
+		highlightedCode = highlighted.String()
+	} else {
+		var highlighted bytes.Buffer
+		if err := highlightCodeBlock(&highlighted, source, language, formatter, theme); err != nil {
+			return "", fmt.Errorf("glamour: error highlighting code: %w", err)
+		}
+		highlightedCode = highlighted.String()
+	}
+	if faint {
+		highlightedCode = forceFaintANSI(highlightedCode)
+	}
+	rendered := renderCodeBlockBackground(highlightedCode, rules, theme, width)
+	ctx.codeBlocks.Add(key, rendered)
+	return rendered, nil
+}
+
+func renderPlainCodeBlock(w io.Writer, source, formatterName, theme string) error {
+	formatter := cachedChromaFormatter(formatterName)
+	style := cachedChromaStyle(theme)
+	if err := formatter.Format(w, style, chroma.Literator(chroma.Token{Type: chroma.Text, Value: source})); err != nil {
+		return fmt.Errorf("format plain code block: %w", err)
+	}
+	return nil
+}
+
 func highlightCodeBlock(w io.Writer, source, language, formatterName, theme string) error {
 	// This intentionally mirrors quick.Highlight, but routes lexer selection
 	// through codeBlockLexer so repeated streamed renders don't rescan Chroma's
 	// lexer filename globs for the same fence language.
 	lexer := codeBlockLexer(language, source)
-	formatter := formatters.Get(formatterName)
-	if formatter == nil {
-		formatter = formatters.Fallback
-	}
-	style := styles.Get(theme)
-	if style == nil {
-		style = styles.Fallback
-	}
+	formatter := cachedChromaFormatter(formatterName)
+	style := cachedChromaStyle(theme)
 
 	iterator, err := lexer.Tokenise(nil, source)
 	if err != nil {
@@ -210,6 +250,30 @@ func highlightCodeBlock(w io.Writer, source, language, formatterName, theme stri
 		return fmt.Errorf("format code block: %w", err)
 	}
 	return nil
+}
+
+func cachedChromaFormatter(formatterName string) chroma.Formatter {
+	if cached, ok := codeBlockFormatterCache.Load(formatterName); ok {
+		return cached.(chroma.Formatter)
+	}
+	formatter := formatters.Get(formatterName)
+	if formatter == nil {
+		formatter = formatters.Fallback
+	}
+	cached, _ := codeBlockFormatterCache.LoadOrStore(formatterName, formatter)
+	return cached.(chroma.Formatter)
+}
+
+func cachedChromaStyle(theme string) *chroma.Style {
+	if cached, ok := codeBlockStyleCache.Load(theme); ok {
+		return cached.(*chroma.Style)
+	}
+	style := styles.Get(theme)
+	if style == nil {
+		style = styles.Fallback
+	}
+	cached, _ := codeBlockStyleCache.LoadOrStore(theme, style)
+	return cached.(*chroma.Style)
 }
 
 func codeBlockLexer(language, source string) chroma.Lexer {
@@ -231,6 +295,15 @@ func plainTextCodeBlockLexer() chroma.Lexer {
 		return entry.lexer
 	}
 	return chroma.Coalesce(lexers.Fallback)
+}
+
+func isPlainTextCodeBlockLanguage(language string) bool {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "", "text", "txt", "plain", "plaintext":
+		return true
+	default:
+		return false
+	}
 }
 
 func loadCodeBlockLexer(language string) cachedCodeBlockLexer {
@@ -291,50 +364,68 @@ func renderCodeBlockBackground(value string, rules StyleCodeBlock, theme string,
 		return value
 	}
 
-	parts := strings.SplitAfter(value, "\n")
-	for index, part := range parts {
-		if part == "" {
-			continue
+	var builder strings.Builder
+	builder.Grow(len(value) + strings.Count(value, "\n")*(len(backgroundSGR)+len("\x1b[0m")))
+	lastNewline := false
+	for len(value) > 0 {
+		nl := strings.IndexByte(value, '\n')
+		if nl < 0 {
+			writeCodeBlockBackgroundLine(&builder, value, backgroundSGR, width, false)
+			return builder.String() + "\n"
 		}
-		hasNewline := strings.HasSuffix(part, "\n")
-		line := strings.TrimSuffix(part, "\n")
-		line = backgroundSGR + reapplyBackgroundAfterReset(line, backgroundSGR)
-		if padding := width - xansi.StringWidth(line); padding > 0 {
-			line += strings.Repeat(" ", padding)
-		}
-		line += "\x1b[0m"
-		if hasNewline {
-			line += "\n"
-		}
-		parts[index] = line
+		writeCodeBlockBackgroundLine(&builder, value[:nl], backgroundSGR, width, true)
+		lastNewline = true
+		value = value[nl+1:]
 	}
-	rendered := strings.Join(parts, "")
-	if !strings.HasSuffix(rendered, "\n") {
-		rendered += "\n"
+	if builder.Len() == 0 || !lastNewline {
+		builder.WriteByte('\n')
 	}
-	return rendered
+	return builder.String()
+}
+
+func writeCodeBlockBackgroundLine(builder *strings.Builder, line, backgroundSGR string, width int, newline bool) {
+	builder.WriteString(backgroundSGR)
+	writeReapplyBackgroundAfterReset(builder, line, backgroundSGR)
+	if padding := width - xansi.StringWidth(line); padding > 0 {
+		builder.WriteString(strings.Repeat(" ", padding))
+	}
+	builder.WriteString("\x1b[0m")
+	if newline {
+		builder.WriteByte('\n')
+	}
 }
 
 func wrapCodeBlockLines(value string, width int) string {
 	if value == "" || width <= 0 {
 		return value
 	}
-	lines := strings.SplitAfter(value, "\n")
-	for index, line := range lines {
-		if line == "" {
-			continue
+	var builder strings.Builder
+	changed := false
+	for len(value) > 0 {
+		nl := strings.IndexByte(value, '\n')
+		line := value
+		hasNewline := false
+		if nl >= 0 {
+			line = value[:nl]
+			hasNewline = true
 		}
-		hasNewline := strings.HasSuffix(line, "\n")
-		line = strings.TrimSuffix(line, "\n")
+		wrapped := line
 		if xansi.StringWidth(line) > width {
-			line = wrapCodeBlockLine(line, width)
+			wrapped = wrapCodeBlockLine(line, width)
+			changed = true
 		}
+		builder.WriteString(wrapped)
 		if hasNewline {
-			line += "\n"
+			builder.WriteByte('\n')
+			value = value[nl+1:]
+		} else {
+			value = ""
 		}
-		lines[index] = line
 	}
-	return strings.Join(lines, "")
+	if !changed {
+		return builder.String()
+	}
+	return builder.String()
 }
 
 func wrapCodeBlockLine(value string, width int) string {
@@ -362,7 +453,7 @@ func codeBlockBackgroundSequence(rules StyleCodeBlock, theme string) string {
 			return background
 		}
 	}
-	if style := styles.Get(theme); style != nil {
+	if style := cachedChromaStyle(theme); style != nil {
 		for _, tokenType := range []chroma.TokenType{chroma.Background, chroma.Text} {
 			if background := style.Get(tokenType).Background; background.IsSet() {
 				return backgroundSequence(background)
@@ -374,9 +465,24 @@ func codeBlockBackgroundSequence(rules StyleCodeBlock, theme string) string {
 
 // reapplyBackgroundAfterReset preserves the block background across Chroma's
 // token reset sequences. Chroma may emit either ESC[0m or ESC[m.
-func reapplyBackgroundAfterReset(value, backgroundSGR string) string {
-	value = strings.ReplaceAll(value, "\x1b[0m", "\x1b[0m"+backgroundSGR)
-	return strings.ReplaceAll(value, "\x1b[m", "\x1b[m"+backgroundSGR)
+func writeReapplyBackgroundAfterReset(builder *strings.Builder, value, backgroundSGR string) {
+	for len(value) > 0 {
+		reset0 := strings.Index(value, "\x1b[0m")
+		reset := strings.Index(value, "\x1b[m")
+		switch {
+		case reset0 < 0 && reset < 0:
+			builder.WriteString(value)
+			return
+		case reset >= 0 && (reset0 < 0 || reset < reset0):
+			builder.WriteString(value[:reset+len("\x1b[m")])
+			builder.WriteString(backgroundSGR)
+			value = value[reset+len("\x1b[m"):]
+		default:
+			builder.WriteString(value[:reset0+len("\x1b[0m")])
+			builder.WriteString(backgroundSGR)
+			value = value[reset0+len("\x1b[0m"):]
+		}
+	}
 }
 
 func styleIsFaint(style StylePrimitive) bool {

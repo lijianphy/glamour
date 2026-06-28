@@ -97,8 +97,8 @@ func (r *ANSIRenderer) renderNode(w util.BufWriter, source []byte, node ast.Node
 		return ast.WalkContinue, nil
 	}
 
-	e := r.NewElement(node, source)
 	if entering { //nolint: nestif
+		e := r.NewElement(node, source)
 		// everything below the Document element gets rendered into a block buffer
 		if bs.Len() > 0 {
 			writeTo = io.Writer(bs.Current().Block)
@@ -112,6 +112,7 @@ func (r *ANSIRenderer) renderNode(w util.BufWriter, source []byte, node ast.Node
 			}
 		}
 	} else {
+		e := r.newExitElement(node, source)
 		// everything below the Document element gets rendered into a block buffer
 		if bs.Len() > 0 {
 			writeTo = io.Writer(bs.Parent().Block)

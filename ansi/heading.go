@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-
-	"charm.land/lipgloss/v2"
 )
 
 // A HeadingElement is used to render headings.
@@ -65,7 +63,7 @@ func (e *HeadingElement) Finish(w io.Writer, ctx RenderContext) error {
 	mw := NewMarginWriter(ctx, w, rules)
 	defer mw.Close() //nolint:errcheck
 
-	flow := lipgloss.Wrap(bs.Current().Block.String(), int(bs.Width(ctx)), "")
+	flow := wrapString(bs.Current().Block.String(), int(bs.Width(ctx)), "")
 	_, err := io.WriteString(mw, flow)
 	if err != nil {
 		return fmt.Errorf("glamour: error writing to writer: %w", err)

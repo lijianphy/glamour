@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"charm.land/lipgloss/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
@@ -82,7 +81,7 @@ func wrapListBlock(value string, width int, styles StyleConfig) string {
 			wrapped = append(wrapped, wrapListContinuationLine(line, continuationColumn, width)...)
 			continue
 		}
-		wrapped = append(wrapped, lipgloss.Wrap(line, width, " ,.;-+|"))
+		wrapped = append(wrapped, wrapString(line, width, " ,.;-+|"))
 	}
 	return strings.Join(wrapped, "\n")
 }
@@ -235,7 +234,7 @@ func wrapListItemLine(line string, column, width int) []string {
 
 	marker := xansi.Cut(line, 0, column)
 	content := xansi.Cut(line, column, xansi.StringWidth(line))
-	parts := strings.Split(lipgloss.Wrap(content, width-column, " ,.;-+|"), "\n")
+	parts := strings.Split(wrapString(content, width-column, " ,.;-+|"), "\n")
 	for index, part := range parts {
 		part = strings.TrimLeft(part, " \t")
 		if index == 0 {
@@ -258,7 +257,7 @@ func wrapListContinuationLine(line string, column, width int) []string {
 		return []string{line}
 	}
 
-	parts := strings.Split(lipgloss.Wrap(line, width, " ,.;-+|"), "\n")
+	parts := strings.Split(wrapString(line, width, " ,.;-+|"), "\n")
 	for index := 1; index < len(parts); index++ {
 		parts[index] = strings.Repeat(" ", column) + strings.TrimLeft(parts[index], " \t")
 	}

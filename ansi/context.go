@@ -16,6 +16,8 @@ type RenderContext struct {
 	table      *tableRenderState
 
 	stripper *bluemonday.Policy
+
+	codeBlocks *codeBlockRenderCache
 }
 
 // NewRenderContext returns a new RenderContext.
@@ -26,6 +28,7 @@ func NewRenderContext(options Options) RenderContext {
 		list:       &listRenderState{},
 		table:      &tableRenderState{},
 		stripper:   bluemonday.StrictPolicy(),
+		codeBlocks: newCodeBlockRenderCache(),
 	}
 }
 

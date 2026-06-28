@@ -481,3 +481,79 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		return Element{}
 	}
 }
+
+func (tr *ANSIRenderer) newExitElement(node ast.Node, source []byte) Element {
+	ctx := tr.context
+
+	switch node.Kind() {
+	case ast.KindDocument:
+		e := &BlockElement{
+			Style:  ctx.options.Styles.Document,
+			Margin: true,
+		}
+		return Element{Finisher: e}
+
+	case ast.KindHeading:
+		return Element{Finisher: &HeadingElement{}}
+
+	case ast.KindParagraph:
+		if node.Parent() != nil && node.Parent().Kind() == ast.KindListItem {
+			return Element{}
+		}
+		return Element{Finisher: &ParagraphElement{}}
+
+	case ast.KindBlockquote:
+		e := &BlockElement{
+			Style:            ctx.blockStack.Current().Style,
+			Margin:           true,
+			PreserveChildren: true,
+		}
+		return Element{Finisher: e}
+
+	case ast.KindList:
+		e := &BlockElement{
+			Style:   ctx.blockStack.Current().Style,
+			Margin:  true,
+			Newline: true,
+			List:    true,
+		}
+		return Element{Finisher: e}
+
+	case ast.KindListItem:
+		return Element{Exiting: listItemExiting(node)}
+
+	case astext.KindTable:
+		return Element{
+			Exiting:  "\n",
+			Finisher: &TableElement{table: node.(*astext.Table), source: source},
+		}
+
+	case astext.KindTableHeader:
+		return Element{Finisher: &TableHeadElement{}}
+
+	case astext.KindTableRow:
+		return Element{Finisher: &TableRowElement{}}
+
+	case astext.KindDefinitionList:
+		e := &BlockElement{
+			Style:   ctx.blockStack.Current().Style,
+			Margin:  true,
+			Newline: true,
+		}
+		return Element{Finisher: e}
+
+	case astext.KindDefinitionDescription:
+		return Element{Exiting: "\n"}
+
+	default:
+		return Element{}
+	}
+}
+
+func listItemExiting(node ast.Node) string {
+	post := "\n"
+	if (node.LastChild() != nil && node.LastChild().Kind() == ast.KindList) || node.NextSibling() == nil {
+		post = ""
+	}
+	return post
+}

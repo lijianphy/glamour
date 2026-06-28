@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-
-	"charm.land/lipgloss/v2"
 )
 
 // BlockElement provides a render buffer for children of a block element.
@@ -89,7 +87,7 @@ func (e *BlockElement) Finish(w io.Writer, ctx RenderContext) error {
 			if markForParentListChild {
 				block = trimTrailingANSIWhitespaceLines(block, wrapWidth)
 			}
-			s = lipgloss.Wrap(block, wrapWidth, " ,.;-+|")
+			s = wrapString(block, wrapWidth, " ,.;-+|")
 		}
 
 		mw := NewMarginWriterWithIndentOffsetAndWidth(ctx, target, bs.Current().Style, bs.Current().IndentOffset, marginWidth)

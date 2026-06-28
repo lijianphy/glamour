@@ -6,16 +6,14 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"unicode/utf8"
 
-	"charm.land/lipgloss/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 )
 
 // MarginWriter is a Writer that applies indentation and padding around
 // whatever you write to it.
 type MarginWriter struct {
-	w  io.Writer
 	iw *IndentWriter
 }
 
@@ -44,8 +42,11 @@ func NewMarginWriterWithIndentOffsetAndWidth(ctx RenderContext, w io.Writer, rul
 		margin = *rules.Margin
 	}
 
-	pw := NewPaddingWriter(w, max(width, 0), func(_ io.Writer) {
-		_, _ = renderText(w, rules.StylePrimitive, " ")
+	var padding bytes.Buffer
+	_, _ = renderText(&padding, rules.StylePrimitive, " ")
+	paddingText := padding.String()
+	pw := NewPaddingWriterWithBatchPadding(w, max(width, 0), nil, func(_ io.Writer, count int) {
+		_, _ = io.WriteString(w, strings.Repeat(paddingText, count))
 	})
 
 	ic := " "
@@ -73,7 +74,6 @@ func NewMarginWriterWithIndentOffsetAndWidth(ctx RenderContext, w io.Writer, rul
 	})
 
 	return &MarginWriter{
-		w:  lipgloss.NewWrapWriter(w),
 		iw: iw,
 	}
 }
@@ -109,75 +109,102 @@ func (w *MarginWriter) Write(b []byte) (int, error) {
 
 // Close closes the [MarginWriter].
 func (w *MarginWriter) Close() error {
-	var werr error
-	if c, ok := w.w.(io.WriteCloser); ok {
-		werr = c.Close()
-	}
-
-	return errors.Join(werr, w.iw.Close())
+	return w.iw.Close()
 }
 
 // PaddingFunc is a function that applies padding around whatever you write to it.
 type PaddingFunc = func(w io.Writer)
 
+// BatchPaddingFunc is a function that applies count columns of padding around
+// whatever you write to it.
+type BatchPaddingFunc = func(w io.Writer, count int)
+
 // PaddingWriter is a writer that applies padding around whatever you write to
 // it.
 type PaddingWriter struct {
-	Padding int
-	PadFunc PaddingFunc
-	w       *lipgloss.WrapWriter
-	cache   bytes.Buffer
+	Padding      int
+	PadFunc      PaddingFunc
+	BatchPadFunc BatchPaddingFunc
+	w            *ansiStateWriter
+	lineWidth    int
+	// widthPending carries an incomplete ANSI escape sequence across Write calls.
+	widthPending []byte
 }
 
 // NewPaddingWriter returns a new PaddingWriter.
 func NewPaddingWriter(w io.Writer, padding int, padFunc PaddingFunc) *PaddingWriter {
+	return NewPaddingWriterWithBatchPadding(w, padding, padFunc, nil)
+}
+
+// NewPaddingWriterWithBatchPadding returns a new PaddingWriter using a batch
+// padding callback when available.
+func NewPaddingWriterWithBatchPadding(w io.Writer, padding int, padFunc PaddingFunc, batchPadFunc BatchPaddingFunc) *PaddingWriter {
 	return &PaddingWriter{
-		Padding: padding,
-		PadFunc: padFunc,
-		w:       lipgloss.NewWrapWriter(w),
+		Padding:      padding,
+		PadFunc:      padFunc,
+		BatchPadFunc: batchPadFunc,
+		w:            newANSIStateWriter(w),
 	}
 }
 
 // Write writes to the padding writer.
 func (w *PaddingWriter) Write(p []byte) (int, error) {
-	// Use UTF-8 aware iteration to properly handle multi-byte characters (e.g., CJK)
-	for i := 0; i < len(p); {
-		r, size := utf8.DecodeRune(p[i:])
-		if r == '\n' { //nolint:nestif
-			line := w.cache.String()
-			linew := ansi.StringWidth(line)
-			if w.Padding > 0 && linew < w.Padding {
-				if w.PadFunc != nil {
-					for n := 0; n < w.Padding-linew; n++ {
-						w.PadFunc(w.w)
-					}
-				} else {
-					_, err := io.WriteString(w.w, strings.Repeat(" ", w.Padding-linew))
-					if err != nil {
-						return 0, fmt.Errorf("glamour: error writing padding: %w", err)
-					}
-				}
+	total := len(p)
+	for len(p) > 0 {
+		nl := bytes.IndexByte(p, '\n')
+		if nl < 0 {
+			w.lineWidth += w.visibleSegmentWidth(p)
+			if _, err := w.w.Write(p); err != nil {
+				return 0, fmt.Errorf("glamour: error writing bytes: %w", err)
 			}
-			w.cache.Reset()
-		} else {
-			// Write complete UTF-8 character bytes to cache
-			w.cache.Write(p[i : i+size])
+			return total, nil
 		}
 
-		// Write complete UTF-8 character bytes to output
-		_, err := w.w.Write(p[i : i+size])
-		if err != nil {
+		if nl > 0 {
+			chunk := p[:nl]
+			w.lineWidth += w.visibleSegmentWidth(chunk)
+			if _, err := w.w.Write(chunk); err != nil {
+				return 0, fmt.Errorf("glamour: error writing bytes: %w", err)
+			}
+		}
+		if err := w.padLine(); err != nil {
+			return 0, err
+		}
+		if _, err := w.w.Write(p[nl : nl+1]); err != nil {
 			return 0, fmt.Errorf("glamour: error writing bytes: %w", err)
 		}
-		i += size
+		w.lineWidth = 0
+		w.widthPending = w.widthPending[:0]
+		p = p[nl+1:]
 	}
 
-	return len(p), nil
+	return total, nil
+}
+
+func (w *PaddingWriter) padLine() error {
+	padding := w.Padding - w.lineWidth
+	if padding <= 0 {
+		return nil
+	}
+	if w.BatchPadFunc != nil {
+		w.BatchPadFunc(w.w, padding)
+		return nil
+	}
+	if w.PadFunc != nil {
+		for range padding {
+			w.PadFunc(w.w)
+		}
+		return nil
+	}
+	if _, err := io.WriteString(w.w, strings.Repeat(" ", padding)); err != nil {
+		return fmt.Errorf("glamour: error writing padding: %w", err)
+	}
+	return nil
 }
 
 // Close closes the [PaddingWriter].
 func (w *PaddingWriter) Close() error {
-	return w.w.Close() //nolint:wrapcheck
+	return w.w.Close()
 }
 
 // IndentFunc is a function that applies indentation around whatever you write to
@@ -188,9 +215,9 @@ type IndentFunc = func(w io.Writer)
 // it.
 type IndentWriter struct {
 	Indent     int
-	IndentFunc PaddingFunc
+	IndentFunc IndentFunc
 	w          io.Writer
-	pw         *lipgloss.WrapWriter
+	pw         *ansiStateWriter
 	skipIndent bool
 }
 
@@ -199,7 +226,7 @@ func NewIndentWriter(w io.Writer, indent int, indentFunc IndentFunc) *IndentWrit
 	return &IndentWriter{
 		Indent:     indent,
 		IndentFunc: indentFunc,
-		pw:         lipgloss.NewWrapWriter(w),
+		pw:         newANSIStateWriter(w),
 		w:          w,
 	}
 }
@@ -228,39 +255,48 @@ func (w *IndentWriter) restorePen() {
 
 // Write writes to the indentation writer.
 func (w *IndentWriter) Write(p []byte) (int, error) {
-	// Use UTF-8 aware iteration to properly handle multi-byte characters (e.g., CJK)
-	for i := 0; i < len(p); {
-		r, size := utf8.DecodeRune(p[i:])
+	total := len(p)
+	for len(p) > 0 {
 		if !w.skipIndent {
-			w.resetPen()
-			if w.IndentFunc != nil {
-				for j := 0; j < w.Indent; j++ {
-					w.IndentFunc(w.pw)
-				}
-			} else {
-				_, err := io.WriteString(w.pw, strings.Repeat(" ", w.Indent))
-				if err != nil {
-					return 0, fmt.Errorf("glamour: error writing indentation: %w", err)
-				}
+			if err := w.writeIndent(); err != nil {
+				return 0, err
 			}
-
 			w.skipIndent = true
-			w.restorePen()
 		}
 
-		if r == '\n' {
-			w.skipIndent = false
+		nl := bytes.IndexByte(p, '\n')
+		if nl < 0 {
+			if _, err := w.pw.Write(p); err != nil {
+				return 0, fmt.Errorf("glamour: error writing bytes: %w", err)
+			}
+			return total, nil
 		}
 
-		// Write complete UTF-8 character bytes to output
-		_, err := w.pw.Write(p[i : i+size])
-		if err != nil {
+		if _, err := w.pw.Write(p[:nl+1]); err != nil {
 			return 0, fmt.Errorf("glamour: error writing bytes: %w", err)
 		}
-		i += size
+		w.skipIndent = false
+		p = p[nl+1:]
 	}
 
-	return len(p), nil
+	return total, nil
+}
+
+func (w *IndentWriter) writeIndent() error {
+	w.resetPen()
+	defer w.restorePen()
+
+	indent := max(w.Indent, 0)
+	if w.IndentFunc != nil {
+		for range indent {
+			w.IndentFunc(w.pw)
+		}
+		return nil
+	}
+	if _, err := io.WriteString(w.pw, strings.Repeat(" ", indent)); err != nil {
+		return fmt.Errorf("glamour: error writing indentation: %w", err)
+	}
+	return nil
 }
 
 // Close closes the [IndentWriter].
@@ -276,4 +312,250 @@ func (w *IndentWriter) Close() error {
 	}
 
 	return werr
+}
+
+type ansiStateWriter struct {
+	w      io.Writer
+	p      *ansi.Parser
+	style  uv.Style
+	link   uv.Link
+	closed bool
+}
+
+func newANSIStateWriter(w io.Writer) *ansiStateWriter {
+	return &ansiStateWriter{w: w}
+}
+
+func (w *ansiStateWriter) Style() uv.Style {
+	return w.style
+}
+
+func (w *ansiStateWriter) Link() uv.Link {
+	return w.link
+}
+
+func (w *ansiStateWriter) ensureParser() *ansi.Parser {
+	if w.p != nil {
+		return w.p
+	}
+	w.p = ansi.GetParser()
+	w.p.SetHandler(ansi.Handler{
+		HandleCsi: func(cmd ansi.Cmd, params ansi.Params) {
+			if cmd == 'm' {
+				uv.ReadStyle(params, &w.style)
+			}
+		},
+		HandleOsc: func(cmd int, data []byte) {
+			if cmd == 8 {
+				uv.ReadLink(data, &w.link)
+			}
+		},
+	})
+	return w.p
+}
+
+func (w *ansiStateWriter) advance(p []byte) {
+	if w.p == nil && bytes.IndexByte(p, '\x1b') < 0 {
+		return
+	}
+	parser := w.ensureParser()
+	for _, b := range p {
+		parser.Advance(b)
+	}
+}
+
+func (w *ansiStateWriter) Write(p []byte) (int, error) {
+	if w.closed {
+		return len(p), nil
+	}
+	total := len(p)
+	for len(p) > 0 {
+		nl := bytes.IndexByte(p, '\n')
+		if nl < 0 {
+			if err := w.writeChunk(p); err != nil {
+				return 0, err
+			}
+			return total, nil
+		}
+		if err := w.writeChunk(p[:nl]); err != nil {
+			return 0, err
+		}
+		w.advance(p[nl : nl+1])
+		if err := w.resetPen(); err != nil {
+			return 0, err
+		}
+		if _, err := w.w.Write(p[nl : nl+1]); err != nil {
+			return 0, fmt.Errorf("glamour: error writing newline: %w", err)
+		}
+		if err := w.restorePen(); err != nil {
+			return 0, err
+		}
+		p = p[nl+1:]
+	}
+	return total, nil
+}
+
+func (w *ansiStateWriter) writeChunk(p []byte) error {
+	if len(p) == 0 {
+		return nil
+	}
+	w.advance(p)
+	if _, err := w.w.Write(p); err != nil {
+		return fmt.Errorf("glamour: error writing bytes: %w", err)
+	}
+	return nil
+}
+
+func (w *ansiStateWriter) resetPen() error {
+	if !w.style.IsZero() {
+		if _, err := io.WriteString(w.w, ansi.ResetStyle); err != nil {
+			return fmt.Errorf("glamour: error resetting style: %w", err)
+		}
+	}
+	if !w.link.IsZero() {
+		if _, err := io.WriteString(w.w, ansi.ResetHyperlink()); err != nil {
+			return fmt.Errorf("glamour: error resetting hyperlink: %w", err)
+		}
+	}
+	return nil
+}
+
+func (w *ansiStateWriter) restorePen() error {
+	if !w.link.IsZero() {
+		if _, err := io.WriteString(w.w, ansi.SetHyperlink(w.link.URL, w.link.Params)); err != nil {
+			return fmt.Errorf("glamour: error restoring hyperlink: %w", err)
+		}
+	}
+	if !w.style.IsZero() {
+		if _, err := io.WriteString(w.w, w.style.String()); err != nil {
+			return fmt.Errorf("glamour: error restoring style: %w", err)
+		}
+	}
+	return nil
+}
+
+func (w *ansiStateWriter) Close() error {
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+	err := w.resetPen()
+	if w.p != nil {
+		ansi.PutParser(w.p)
+		w.p = nil
+	}
+	return err
+}
+
+func (w *PaddingWriter) visibleSegmentWidth(p []byte) int {
+	if len(p) == 0 {
+		return 0
+	}
+	if len(w.widthPending) > 0 {
+		combined := make([]byte, 0, len(w.widthPending)+len(p))
+		combined = append(combined, w.widthPending...)
+		combined = append(combined, p...)
+		w.widthPending = w.widthPending[:0]
+		p = combined
+	}
+	if width, pendingStart, ok := asciiANSIWidth(p); ok {
+		if pendingStart >= 0 {
+			w.widthPending = append(w.widthPending, p[pendingStart:]...)
+		}
+		return width
+	}
+	if pendingStart := trailingIncompleteANSIStart(p); pendingStart >= 0 {
+		w.widthPending = append(w.widthPending, p[pendingStart:]...)
+		p = p[:pendingStart]
+	}
+	return ansi.StringWidth(string(p))
+}
+
+func asciiANSIWidth(p []byte) (int, int, bool) {
+	width := 0
+	for i := 0; i < len(p); {
+		b := p[i]
+		if b >= 0x80 {
+			return 0, -1, false
+		}
+		if b == '\x1b' {
+			next := i + 1
+			if next >= len(p) {
+				return width, i, true
+			}
+			start := i
+			var complete bool
+			switch p[next] {
+			case '[':
+				i, complete = skipCSI(p, next+1)
+			case ']':
+				i, complete = skipStringTerminatedSequence(p, next+1)
+			case 'P', '^', '_':
+				i, complete = skipStringTerminatedSequence(p, next+1)
+			default:
+				i, complete = next+1, true
+			}
+			if !complete {
+				return width, start, true
+			}
+			continue
+		}
+		if b >= 0x20 && b < 0x7f {
+			width++
+		}
+		i++
+	}
+	return width, -1, true
+}
+
+func skipCSI(p []byte, i int) (int, bool) {
+	for i < len(p) {
+		if p[i] >= 0x40 && p[i] <= 0x7e {
+			return i + 1, true
+		}
+		i++
+	}
+	return i, false
+}
+
+func skipStringTerminatedSequence(p []byte, i int) (int, bool) {
+	for i < len(p) {
+		if p[i] == '\a' {
+			return i + 1, true
+		}
+		if p[i] == '\x1b' && i+1 < len(p) && p[i+1] == '\\' {
+			return i + 2, true
+		}
+		i++
+	}
+	return i, false
+}
+
+func trailingIncompleteANSIStart(p []byte) int {
+	for i := 0; i < len(p); i++ {
+		if p[i] != '\x1b' {
+			continue
+		}
+		next := i + 1
+		if next >= len(p) {
+			return i
+		}
+		var end int
+		var complete bool
+		switch p[next] {
+		case '[':
+			end, complete = skipCSI(p, next+1)
+		case ']':
+			end, complete = skipStringTerminatedSequence(p, next+1)
+		case 'P', '^', '_':
+			end, complete = skipStringTerminatedSequence(p, next+1)
+		default:
+			end, complete = next+1, true
+		}
+		if !complete {
+			return i
+		}
+		i = end - 1
+	}
+	return -1
 }
