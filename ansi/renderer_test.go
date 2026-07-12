@@ -154,6 +154,34 @@ func TestRendererListItemsUseHangingIndent(t *testing.T) {
 	}
 }
 
+func TestRendererWrappedListContinuationStaysWithinWidth(t *testing.T) {
+	options := Options{
+		WordWrap: 70,
+		Styles: StyleConfig{
+			List:        StyleList{},
+			Item:        StylePrimitive{BlockPrefix: "- "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+		},
+	}
+	source := strings.Join([]string{
+		"2. **High — A tool panic terminates the entire process** (`core/scheduler.go:682–692`)  ",
+		"   `CapabilityBundle.Execute` runs in a goroutine without panic recovery. Since capability bundles are extensible, any tool panic bypasses loop settlement and scheduler cleanup and crashes the process. Convert recovered panics into error tool results.",
+	}, "\n")
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	for line := range strings.SplitSeq(stripped, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if width := xansi.StringWidth(line); width > options.WordWrap {
+			t.Fatalf("rendered line width = %d, want <= %d: %q\n%s", width, options.WordWrap, line, stripped)
+		}
+		if !strings.HasPrefix(line, "2. ") && !strings.HasPrefix(line, "   ") {
+			t.Fatalf("list continuation escaped its hanging indent: %q\n%s", line, stripped)
+		}
+	}
+}
+
 func TestRendererNestedListsAlignToParentContentColumn(t *testing.T) {
 	indent := uint(2)
 	options := Options{

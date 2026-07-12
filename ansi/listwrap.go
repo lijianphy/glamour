@@ -14,6 +14,7 @@ const (
 	// buffer is rewrapped. They are stripped before final output.
 	listOpaqueLinePrefix    = "\x1eglamour-list-opaque:"
 	listOpaqueLineSeparator = "\x1f"
+	listWrapBreakpoints     = " ,.;-+|"
 )
 
 type listChildBlockLayout struct {
@@ -81,7 +82,7 @@ func wrapListBlock(value string, width int, styles StyleConfig) string {
 			wrapped = append(wrapped, wrapListContinuationLine(line, continuationColumn, width)...)
 			continue
 		}
-		wrapped = append(wrapped, wrapString(line, width, " ,.;-+|"))
+		wrapped = append(wrapped, wrapListText(line, width)...)
 	}
 	return strings.Join(wrapped, "\n")
 }
@@ -234,7 +235,7 @@ func wrapListItemLine(line string, column, width int) []string {
 
 	marker := xansi.Cut(line, 0, column)
 	content := xansi.Cut(line, column, xansi.StringWidth(line))
-	parts := strings.Split(wrapString(content, width-column, " ,.;-+|"), "\n")
+	parts := wrapListText(content, width-column)
 	for index, part := range parts {
 		part = strings.TrimLeft(part, " \t")
 		if index == 0 {
@@ -257,11 +258,27 @@ func wrapListContinuationLine(line string, column, width int) []string {
 		return []string{line}
 	}
 
-	parts := strings.Split(wrapString(line, width, " ,.;-+|"), "\n")
-	for index := 1; index < len(parts); index++ {
-		parts[index] = strings.Repeat(" ", column) + strings.TrimLeft(parts[index], " \t")
+	if width <= column {
+		return []string{line}
+	}
+	content := xansi.Cut(line, column, xansi.StringWidth(line))
+	parts := wrapListText(content, width-column)
+	for index, part := range parts {
+		part = strings.TrimLeft(part, " \t")
+		if index == 0 {
+			parts[index] = xansi.Cut(line, 0, column) + part
+			continue
+		}
+		parts[index] = strings.Repeat(" ", column) + part
 	}
 	return parts
+}
+
+func wrapListText(value string, width int) []string {
+	if width <= 0 {
+		return []string{value}
+	}
+	return strings.Split(wrapString(value, width, listWrapBreakpoints), "\n")
 }
 
 func listContentColumn(line string, styles StyleConfig) (int, bool) {
