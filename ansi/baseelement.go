@@ -54,6 +54,10 @@ func renderText(w io.Writer, rules StylePrimitive, s string) (int, error) { //no
 	if rules.Title != nil && *rules.Title {
 		s = cases.Title(language.English).String(s)
 	}
+	// Keep bold before colors, matching Lip Gloss and terminal behavior.
+	if rules.Bold != nil && *rules.Bold {
+		style = style.Bold()
+	}
 	if rules.Color != nil {
 		style = style.ForegroundColor(lipgloss.Color(*rules.Color))
 	}
@@ -62,9 +66,6 @@ func renderText(w io.Writer, rules StylePrimitive, s string) (int, error) { //no
 	}
 	if rules.Underline != nil && *rules.Underline {
 		style = style.Underline(true)
-	}
-	if rules.Bold != nil && *rules.Bold {
-		style = style.Bold()
 	}
 	if rules.Italic != nil && *rules.Italic {
 		style = style.Italic(true)

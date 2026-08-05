@@ -187,6 +187,25 @@ func TestRendererListItemParagraphStartsAtContentColumn(t *testing.T) {
 	}
 }
 
+func TestRendererStrongWritesBoldBeforeForeground(t *testing.T) {
+	bold := true
+	foreground := "231"
+	options := Options{
+		WordWrap: 80,
+		Styles: StyleConfig{
+			Strong: StylePrimitive{
+				Color: &foreground,
+				Bold:  &bold,
+			},
+		},
+	}
+
+	got := renderMarkdownForTest(t, "**bold**", options)
+	if !strings.Contains(got, "\x1b[1;38;5;231mbold") {
+		t.Fatalf("strong style does not match Lip Gloss attribute ordering:\n%q", got)
+	}
+}
+
 func TestRendererWrappedListContinuationStaysWithinWidth(t *testing.T) {
 	options := Options{
 		WordWrap: 70,
