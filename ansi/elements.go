@@ -72,6 +72,9 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		if node.Parent() != nil {
 			kind := node.Parent().Kind()
 			if kind == ast.KindListItem {
+				if node.PreviousSibling() != nil {
+					return Element{Entering: "\n"}
+				}
 				return Element{}
 			}
 		}

@@ -154,6 +154,39 @@ func TestRendererListItemsUseHangingIndent(t *testing.T) {
 	}
 }
 
+func TestRendererListItemParagraphStartsAtContentColumn(t *testing.T) {
+	options := Options{
+		WordWrap: 80,
+		Styles: StyleConfig{
+			List:        StyleList{},
+			Item:        StylePrimitive{BlockPrefix: "- "},
+			Enumeration: StylePrimitive{BlockPrefix: ". "},
+		},
+	}
+	source := "1. **item title**\n\n   Item content."
+
+	stripped := xansi.Strip(renderMarkdownForTest(t, source, options))
+	lines := strings.Split(stripped, "\n")
+	var titleLine, contentLine string
+	for _, line := range lines {
+		switch {
+		case strings.Contains(line, "item title"):
+			titleLine = line
+		case strings.Contains(line, "Item content."):
+			contentLine = line
+		}
+	}
+	if titleLine == "" || contentLine == "" {
+		t.Fatalf("rendered list item paragraphs are missing:\n%s", stripped)
+	}
+	if titleLine == contentLine {
+		t.Fatalf("list item paragraphs rendered on the same line:\n%s", stripped)
+	}
+	if got := leadingSpaceWidth(contentLine); got != 3 {
+		t.Fatalf("list item content indent = %d, want 3:\n%s", got, stripped)
+	}
+}
+
 func TestRendererWrappedListContinuationStaysWithinWidth(t *testing.T) {
 	options := Options{
 		WordWrap: 70,
