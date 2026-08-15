@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+	"github.com/alecthomas/chroma/v2"
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
@@ -99,7 +100,16 @@ func TestIndentWriterRestoresStyleAndHyperlinkAcrossLines(t *testing.T) {
 func TestCodeBlockRenderCacheBounds(t *testing.T) {
 	cache := newCodeBlockRenderCache()
 	for i := range codeBlockRenderCacheMaxEntries + 32 {
-		key := newCodeBlockCacheKey(string(rune('a'+i%26)), "go", "terminal256", "monokai", "", 80, false)
+		key := newCodeBlockCacheKey(
+			string(rune('a'+i%26)),
+			"go",
+			"terminal256",
+			"monokai",
+			"",
+			nil,
+			80,
+			false,
+		)
 		key.length = i
 		cache.Add(key, strings.Repeat("x", 128))
 	}
@@ -108,5 +118,15 @@ func TestCodeBlockRenderCacheBounds(t *testing.T) {
 	}
 	if cache.bytes > codeBlockRenderCacheMaxBytes {
 		t.Fatalf("cache bytes = %d, want <= %d", cache.bytes, codeBlockRenderCacheMaxBytes)
+	}
+}
+
+func TestCodeBlockRenderCacheKeyIncludesConcreteStyleIdentity(t *testing.T) {
+	first := chroma.MustNewStyle("same-name", chroma.StyleEntries{chroma.Text: "#010203"})
+	second := chroma.MustNewStyle("same-name", chroma.StyleEntries{chroma.Text: "#040506"})
+	firstKey := newCodeBlockCacheKey("source", "go", "terminal16m", "same-name", "", first, 80, false)
+	secondKey := newCodeBlockCacheKey("source", "go", "terminal16m", "same-name", "", second, 80, false)
+	if firstKey == secondKey {
+		t.Fatal("cache key ignored concrete Chroma style identity")
 	}
 }

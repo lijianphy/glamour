@@ -26,10 +26,6 @@ const (
 	codeBlockTabWidth = 4
 )
 
-// mutex for synchronizing access to the chroma style registry.
-// Related https://github.com/alecthomas/chroma/pull/650
-var mutex = sync.Mutex{}
-
 // codeBlockLexerCache avoids Chroma's expensive registry glob matching on
 // every live-stream re-render. Cache both recognized languages and misses:
 // misses still analyse source so unknown fences keep quick.Highlight's
@@ -103,53 +99,7 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 		formatter = ctx.options.ChromaFormatter
 	}
 	theme := rules.Theme
-
-	if rules.Chroma != nil {
-		theme = chromaStyleTheme
-		mutex.Lock()
-		// Don't register the style if it's already registered.
-		_, ok := styles.Registry[theme]
-		if !ok {
-			styles.Register(chroma.MustNewStyle(theme,
-				chroma.StyleEntries{
-					chroma.Text:                chromaStyle(rules.Chroma.Text),
-					chroma.Error:               chromaStyle(rules.Chroma.Error),
-					chroma.Comment:             chromaStyle(rules.Chroma.Comment),
-					chroma.CommentPreproc:      chromaStyle(rules.Chroma.CommentPreproc),
-					chroma.Keyword:             chromaStyle(rules.Chroma.Keyword),
-					chroma.KeywordReserved:     chromaStyle(rules.Chroma.KeywordReserved),
-					chroma.KeywordNamespace:    chromaStyle(rules.Chroma.KeywordNamespace),
-					chroma.KeywordType:         chromaStyle(rules.Chroma.KeywordType),
-					chroma.Operator:            chromaStyle(rules.Chroma.Operator),
-					chroma.Punctuation:         chromaStyle(rules.Chroma.Punctuation),
-					chroma.Name:                chromaStyle(rules.Chroma.Name),
-					chroma.NameBuiltin:         chromaStyle(rules.Chroma.NameBuiltin),
-					chroma.NameTag:             chromaStyle(rules.Chroma.NameTag),
-					chroma.NameAttribute:       chromaStyle(rules.Chroma.NameAttribute),
-					chroma.NameClass:           chromaStyle(rules.Chroma.NameClass),
-					chroma.NameConstant:        chromaStyle(rules.Chroma.NameConstant),
-					chroma.NameDecorator:       chromaStyle(rules.Chroma.NameDecorator),
-					chroma.NameException:       chromaStyle(rules.Chroma.NameException),
-					chroma.NameFunction:        chromaStyle(rules.Chroma.NameFunction),
-					chroma.NameOther:           chromaStyle(rules.Chroma.NameOther),
-					chroma.Literal:             chromaStyle(rules.Chroma.Literal),
-					chroma.LiteralNumber:       chromaStyle(rules.Chroma.LiteralNumber),
-					chroma.LiteralDate:         chromaStyle(rules.Chroma.LiteralDate),
-					chroma.LiteralString:       chromaStyle(rules.Chroma.LiteralString),
-					chroma.LiteralStringEscape: chromaStyle(rules.Chroma.LiteralStringEscape),
-					chroma.GenericDeleted:      chromaStyle(rules.Chroma.GenericDeleted),
-					chroma.GenericEmph:         chromaStyle(rules.Chroma.GenericEmph),
-					chroma.GenericInserted:     chromaStyle(rules.Chroma.GenericInserted),
-					chroma.GenericStrong:       chromaStyle(rules.Chroma.GenericStrong),
-					chroma.GenericSubheading:   chromaStyle(rules.Chroma.GenericSubheading),
-					chroma.Background:          chromaStyle(rules.Chroma.Background),
-				}))
-		}
-		mutex.Unlock()
-		if !ok {
-			codeBlockStyleCache.Delete(theme)
-		}
-	}
+	concreteStyle := ctx.options.ChromaStyle
 
 	layout := childBlockLayout(ctx, indentation, margin)
 	var target io.Writer
@@ -165,11 +115,21 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	}
 
 	code := expandCodeBlockTabs(e.Code)
-	if len(theme) > 0 {
+	if concreteStyle != nil || len(theme) > 0 {
 		_, _ = renderText(target, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
 
 		faint := styleIsFaint(cascadeStylePrimitives(bs.Current().Style.StylePrimitive, rules.StylePrimitive))
-		rendered, err := renderCachedCodeBlock(ctx, code, e.Language, formatter, theme, rules, layout.width, faint)
+		rendered, err := renderCachedCodeBlock(
+			ctx,
+			code,
+			e.Language,
+			formatter,
+			theme,
+			concreteStyle,
+			rules,
+			layout.width,
+			faint,
+		)
 		if err != nil {
 			return err
 		}
@@ -192,13 +152,20 @@ func (e *CodeBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	return finishListChildBlock(w, blockBuffer.String(), layout, iw)
 }
 
-func renderCachedCodeBlock(ctx RenderContext, source, language, formatter, theme string, rules StyleCodeBlock, width int, faint bool) (string, error) {
+func renderCachedCodeBlock(
+	ctx RenderContext,
+	source, language, formatter, theme string,
+	concreteStyle *chroma.Style,
+	rules StyleCodeBlock,
+	width int,
+	faint bool,
+) (string, error) {
 	background := ""
 	if rules.BackgroundColor != nil {
 		background = *rules.BackgroundColor
 	}
 	language = strings.TrimSpace(language)
-	key := newCodeBlockCacheKey(source, language, formatter, theme, background, width, faint)
+	key := newCodeBlockCacheKey(source, language, formatter, theme, background, concreteStyle, width, faint)
 	if rendered, ok := ctx.codeBlocks.Get(key); ok {
 		return rendered, nil
 	}
@@ -206,13 +173,13 @@ func renderCachedCodeBlock(ctx RenderContext, source, language, formatter, theme
 	var highlightedCode string
 	if isPlainTextCodeBlockLanguage(language) {
 		var highlighted bytes.Buffer
-		if err := renderPlainCodeBlock(&highlighted, source, formatter, theme); err != nil {
+		if err := renderPlainCodeBlock(&highlighted, source, formatter, theme, concreteStyle); err != nil {
 			return "", fmt.Errorf("glamour: error rendering plain code: %w", err)
 		}
 		highlightedCode = highlighted.String()
 	} else {
 		var highlighted bytes.Buffer
-		if err := highlightCodeBlock(&highlighted, source, language, formatter, theme); err != nil {
+		if err := highlightCodeBlock(&highlighted, source, language, formatter, theme, concreteStyle); err != nil {
 			return "", fmt.Errorf("glamour: error highlighting code: %w", err)
 		}
 		highlightedCode = highlighted.String()
@@ -220,27 +187,35 @@ func renderCachedCodeBlock(ctx RenderContext, source, language, formatter, theme
 	if faint {
 		highlightedCode = forceFaintANSI(highlightedCode)
 	}
-	rendered := renderCodeBlockBackground(highlightedCode, rules, theme, width)
+	rendered := renderCodeBlockBackground(highlightedCode, rules, theme, concreteStyle, width)
 	ctx.codeBlocks.Add(key, rendered)
 	return rendered, nil
 }
 
-func renderPlainCodeBlock(w io.Writer, source, formatterName, theme string) error {
+func renderPlainCodeBlock(
+	w io.Writer,
+	source, formatterName, theme string,
+	concreteStyle *chroma.Style,
+) error {
 	formatter := cachedChromaFormatter(formatterName)
-	style := cachedChromaStyle(theme)
+	style := resolvedChromaStyle(theme, concreteStyle)
 	if err := formatter.Format(w, style, chroma.Literator(chroma.Token{Type: chroma.Text, Value: source})); err != nil {
 		return fmt.Errorf("format plain code block: %w", err)
 	}
 	return nil
 }
 
-func highlightCodeBlock(w io.Writer, source, language, formatterName, theme string) error {
+func highlightCodeBlock(
+	w io.Writer,
+	source, language, formatterName, theme string,
+	concreteStyle *chroma.Style,
+) error {
 	// This intentionally mirrors quick.Highlight, but routes lexer selection
 	// through codeBlockLexer so repeated streamed renders don't rescan Chroma's
 	// lexer filename globs for the same fence language.
 	lexer := codeBlockLexer(language, source)
 	formatter := cachedChromaFormatter(formatterName)
-	style := cachedChromaStyle(theme)
+	style := resolvedChromaStyle(theme, concreteStyle)
 
 	iterator, err := lexer.Tokenise(nil, source)
 	if err != nil {
@@ -250,6 +225,49 @@ func highlightCodeBlock(w io.Writer, source, language, formatterName, theme stri
 		return fmt.Errorf("format code block: %w", err)
 	}
 	return nil
+}
+
+func resolvedChromaStyle(theme string, concreteStyle *chroma.Style) *chroma.Style {
+	if concreteStyle != nil {
+		return concreteStyle
+	}
+	return cachedChromaStyle(theme)
+}
+
+func concreteChromaStyle(config *Chroma) *chroma.Style {
+	return chroma.MustNewStyle(chromaStyleTheme, chroma.StyleEntries{
+		chroma.Text:                chromaStyle(config.Text),
+		chroma.Error:               chromaStyle(config.Error),
+		chroma.Comment:             chromaStyle(config.Comment),
+		chroma.CommentPreproc:      chromaStyle(config.CommentPreproc),
+		chroma.Keyword:             chromaStyle(config.Keyword),
+		chroma.KeywordReserved:     chromaStyle(config.KeywordReserved),
+		chroma.KeywordNamespace:    chromaStyle(config.KeywordNamespace),
+		chroma.KeywordType:         chromaStyle(config.KeywordType),
+		chroma.Operator:            chromaStyle(config.Operator),
+		chroma.Punctuation:         chromaStyle(config.Punctuation),
+		chroma.Name:                chromaStyle(config.Name),
+		chroma.NameBuiltin:         chromaStyle(config.NameBuiltin),
+		chroma.NameTag:             chromaStyle(config.NameTag),
+		chroma.NameAttribute:       chromaStyle(config.NameAttribute),
+		chroma.NameClass:           chromaStyle(config.NameClass),
+		chroma.NameConstant:        chromaStyle(config.NameConstant),
+		chroma.NameDecorator:       chromaStyle(config.NameDecorator),
+		chroma.NameException:       chromaStyle(config.NameException),
+		chroma.NameFunction:        chromaStyle(config.NameFunction),
+		chroma.NameOther:           chromaStyle(config.NameOther),
+		chroma.Literal:             chromaStyle(config.Literal),
+		chroma.LiteralNumber:       chromaStyle(config.LiteralNumber),
+		chroma.LiteralDate:         chromaStyle(config.LiteralDate),
+		chroma.LiteralString:       chromaStyle(config.LiteralString),
+		chroma.LiteralStringEscape: chromaStyle(config.LiteralStringEscape),
+		chroma.GenericDeleted:      chromaStyle(config.GenericDeleted),
+		chroma.GenericEmph:         chromaStyle(config.GenericEmph),
+		chroma.GenericInserted:     chromaStyle(config.GenericInserted),
+		chroma.GenericStrong:       chromaStyle(config.GenericStrong),
+		chroma.GenericSubheading:   chromaStyle(config.GenericSubheading),
+		chroma.Background:          chromaStyle(config.Background),
+	})
 }
 
 func cachedChromaFormatter(formatterName string) chroma.Formatter {
@@ -354,12 +372,18 @@ func expandCodeBlockTabs(value string) string {
 // code block style opts in to a background. The caller applies leading block
 // indentation outside this background, matching Rich's Markdown code block
 // rendering where list/quote indentation remains unpainted.
-func renderCodeBlockBackground(value string, rules StyleCodeBlock, theme string, width int) string {
+func renderCodeBlockBackground(
+	value string,
+	rules StyleCodeBlock,
+	theme string,
+	concreteStyle *chroma.Style,
+	width int,
+) string {
 	value = wrapCodeBlockLines(value, width)
 	if rules.BackgroundColor == nil {
 		return value
 	}
-	backgroundSGR := codeBlockBackgroundSequence(rules, theme)
+	backgroundSGR := codeBlockBackgroundSequence(rules, theme, concreteStyle)
 	if backgroundSGR == "" || width <= 0 {
 		return value
 	}
@@ -447,13 +471,17 @@ func hardWrapCodeBlockLine(value string, width int) string {
 // codeBlockBackgroundSequence returns the explicit code block background color,
 // falling back to the Chroma theme background when the explicit color is empty
 // or invalid.
-func codeBlockBackgroundSequence(rules StyleCodeBlock, theme string) string {
+func codeBlockBackgroundSequence(
+	rules StyleCodeBlock,
+	theme string,
+	concreteStyle *chroma.Style,
+) string {
 	if rules.BackgroundColor != nil {
 		if background := styleBackgroundSequence(*rules.BackgroundColor); background != "" {
 			return background
 		}
 	}
-	if style := cachedChromaStyle(theme); style != nil {
+	if style := resolvedChromaStyle(theme, concreteStyle); style != nil {
 		for _, tokenType := range []chroma.TokenType{chroma.Background, chroma.Text} {
 			if background := style.Get(tokenType).Background; background.IsSet() {
 				return backgroundSequence(background)

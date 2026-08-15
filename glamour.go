@@ -19,6 +19,7 @@ import (
 
 	"charm.land/glamour/v2/ansi"
 	styles "charm.land/glamour/v2/styles"
+	"github.com/alecthomas/chroma/v2"
 )
 
 const (
@@ -216,6 +217,14 @@ func WithEmoji() TermRendererOption {
 func WithChromaFormatter(formatter string) TermRendererOption {
 	return func(tr *TermRenderer) error {
 		tr.ansiOptions.ChromaFormatter = formatter
+		return nil
+	}
+}
+
+// WithChromaStyle sets the concrete Chroma style used for code blocks.
+func WithChromaStyle(style *chroma.Style) TermRendererOption {
+	return func(tr *TermRenderer) error {
+		tr.ansiOptions.ChromaStyle = style
 		return nil
 	}
 }

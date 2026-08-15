@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
 	east "github.com/yuin/goldmark-emoji/ast"
 	"github.com/yuin/goldmark/ast"
 	astext "github.com/yuin/goldmark/extension/ast"
@@ -22,6 +23,7 @@ type Options struct {
 	PreserveNewLines bool
 	Styles           StyleConfig
 	ChromaFormatter  string
+	ChromaStyle      *chroma.Style
 }
 
 // ANSIRenderer renders markdown content as ANSI escaped sequences.

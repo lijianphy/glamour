@@ -22,6 +22,9 @@ type RenderContext struct {
 
 // NewRenderContext returns a new RenderContext.
 func NewRenderContext(options Options) RenderContext {
+	if options.ChromaStyle == nil && options.Styles.CodeBlock.Chroma != nil {
+		options.ChromaStyle = concreteChromaStyle(options.Styles.CodeBlock.Chroma)
+	}
 	return RenderContext{
 		options:    options,
 		blockStack: &BlockStack{},

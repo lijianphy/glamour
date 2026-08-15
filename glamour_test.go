@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"charm.land/glamour/v2/styles"
+	"github.com/alecthomas/chroma/v2"
+	chromastyles "github.com/alecthomas/chroma/v2/styles"
 	"github.com/charmbracelet/x/exp/golden"
 )
 
@@ -322,4 +324,40 @@ func TestWithChromaFormatterCustom(t *testing.T) {
 	}
 
 	golden.RequireEqual(t, []byte(b))
+}
+
+func TestWithConcreteChromaStyle(t *testing.T) {
+	const styleName = "glamour-concrete-test"
+	style := chroma.MustNewStyle(styleName, chroma.StyleEntries{
+		chroma.Text:       "#010203",
+		chroma.Keyword:    "#040506",
+		chroma.Background: "bg:#070809",
+	})
+	if _, registered := chromastyles.Registry[styleName]; registered {
+		t.Fatalf("test style %q is already globally registered", styleName)
+	}
+
+	renderer, err := NewTermRenderer(
+		WithStandardStyle(styles.DarkStyle),
+		WithChromaFormatter("terminal16m"),
+		WithChromaStyle(style),
+	)
+	if err != nil {
+		t.Fatalf("create renderer: %v", err)
+	}
+	rendered, err := renderer.Render("```go\npackage main\n```\n\n```\nplain text\n```")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	for name, sequence := range map[string]string{
+		"keyword": "\x1b[38;2;4;5;6m",
+		"text":    "\x1b[38;2;1;2;3m",
+	} {
+		if !strings.Contains(rendered, sequence) {
+			t.Fatalf("rendered code missing concrete %s style %q:\n%q", name, sequence, rendered)
+		}
+	}
+	if _, registered := chromastyles.Registry[styleName]; registered {
+		t.Fatalf("concrete style %q was added to the global registry", styleName)
+	}
 }

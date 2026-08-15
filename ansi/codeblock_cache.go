@@ -4,6 +4,8 @@ import (
 	"container/list"
 	"crypto/sha256"
 	"sync"
+
+	"github.com/alecthomas/chroma/v2"
 )
 
 const (
@@ -12,14 +14,15 @@ const (
 )
 
 type codeBlockCacheKey struct {
-	hash       [sha256.Size]byte
-	length     int
-	language   string
-	formatter  string
-	theme      string
-	background string
-	width      int
-	faint      bool
+	hash        [sha256.Size]byte
+	length      int
+	language    string
+	formatter   string
+	theme       string
+	chromaStyle *chroma.Style
+	background  string
+	width       int
+	faint       bool
 }
 
 type codeBlockCacheEntry struct {
@@ -42,16 +45,22 @@ func newCodeBlockRenderCache() *codeBlockRenderCache {
 	}
 }
 
-func newCodeBlockCacheKey(source, language, formatter, theme, background string, width int, faint bool) codeBlockCacheKey {
+func newCodeBlockCacheKey(
+	source, language, formatter, theme, background string,
+	chromaStyle *chroma.Style,
+	width int,
+	faint bool,
+) codeBlockCacheKey {
 	return codeBlockCacheKey{
-		hash:       sha256.Sum256([]byte(source)),
-		length:     len(source),
-		language:   language,
-		formatter:  formatter,
-		theme:      theme,
-		background: background,
-		width:      width,
-		faint:      faint,
+		hash:        sha256.Sum256([]byte(source)),
+		length:      len(source),
+		language:    language,
+		formatter:   formatter,
+		theme:       theme,
+		chromaStyle: chromaStyle,
+		background:  background,
+		width:       width,
+		faint:       faint,
 	}
 }
 
