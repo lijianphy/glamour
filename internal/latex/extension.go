@@ -16,10 +16,10 @@ var Extension = &extension{}
 func (e *extension) Extend(markdown goldmark.Markdown) {
 	markdown.Parser().AddOptions(
 		parser.WithBlockParsers(
-			util.Prioritized(NewBlockParser(), 650),
+			util.Prioritized(newBlockParser(), 650),
 		),
 		parser.WithInlineParsers(
-			util.Prioritized(NewInlineParser(), 50),
+			util.Prioritized(newInlineParser(), 50),
 		),
 	)
 }

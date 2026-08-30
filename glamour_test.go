@@ -125,9 +125,19 @@ func TestWithLatexMathPreservesInlineAndDisplayExpressions(t *testing.T) {
 	source := strings.Join([]string{
 		"Inline \\(x_* = \\frac{\\{a\\}}{b} + **raw**\\) equation.",
 		"",
+		"Dollar $x_* + **raw** + \\$5$ and $y = 2$ equations.",
+		"",
 		"\\[",
 		"E_* = mc^2 + [raw](url)",
 		"\\]",
+		"",
+		"$$",
+		"F_* = ma + **raw**",
+		"$$",
+		"",
+		"$$G_* = m_1m_2/r^2 + [raw](url)$$",
+		"",
+		"After dollar display.",
 	}, "\n")
 	rendered, err := r.Render(source)
 	if err != nil {
@@ -138,7 +148,7 @@ func TestWithLatexMathPreservesInlineAndDisplayExpressions(t *testing.T) {
 	}
 }
 
-func TestWithLatexMathPreservesStreamingDelimiters(t *testing.T) {
+func TestWithLatexMathPreservesIncompleteSource(t *testing.T) {
 	r, err := NewTermRenderer(WithLatexMath())
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +158,8 @@ func TestWithLatexMathPreservesStreamingDelimiters(t *testing.T) {
 		"Streaming \\(x_*",
 		"Closing \\) and \\] delimiters",
 		"\\[\nE_* = mc^2",
+		"Streaming $x_*",
+		"$$\nF_* = ma",
 	} {
 		rendered, err := r.Render(source)
 		if err != nil {
@@ -156,6 +168,22 @@ func TestWithLatexMathPreservesStreamingDelimiters(t *testing.T) {
 		if got := trimRenderedRows(xansi.Strip(rendered)); got != source {
 			t.Errorf("rendered incomplete LaTeX math = %q, want %q", got, source)
 		}
+	}
+}
+
+func TestWithLatexMathLeavesOrdinaryDollarsUnchanged(t *testing.T) {
+	r, err := NewTermRenderer(WithLatexMath())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	source := "Costs $10 and $20. Shell $HOME. Math $x + 1$."
+	rendered, err := r.Render(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := trimRenderedRows(xansi.Strip(rendered)); got != source {
+		t.Fatalf("rendered dollar text = %q, want %q", got, source)
 	}
 }
 

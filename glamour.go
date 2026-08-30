@@ -215,7 +215,7 @@ func WithEmoji() TermRendererOption {
 	}
 }
 
-// WithLatexMath enables raw \(inline\) and \[display\] LaTeX math.
+// WithLatexMath enables raw \(...\), \[...\], $...$, and $$...$$ LaTeX math.
 func WithLatexMath() TermRendererOption {
 	return func(tr *TermRenderer) error {
 		if tr.latexMath {

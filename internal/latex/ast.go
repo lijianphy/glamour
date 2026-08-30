@@ -9,13 +9,11 @@ import (
 // KindInlineMath is the node kind for inline LaTeX math.
 var KindInlineMath = ast.NewNodeKind("InlineMath")
 
-// InlineMath is raw LaTeX delimited by \( and \), or an individual math
-// delimiter retained while an expression is still being streamed.
+// InlineMath is raw delimited LaTeX.
 type InlineMath struct {
 	ast.BaseInline
 
-	Segment text.Segment
-	Display bool
+	segment text.Segment
 }
 
 // Kind implements ast.Node.
@@ -30,7 +28,7 @@ func (n *InlineMath) IsRaw() bool {
 
 // Text returns the original delimited LaTeX source.
 func (n *InlineMath) Text(source []byte) []byte {
-	return n.Segment.Value(source)
+	return n.segment.Value(source)
 }
 
 // Dump implements ast.Node.
@@ -40,22 +38,16 @@ func (n *InlineMath) Dump(source []byte, level int) {
 	}, nil)
 }
 
-// NewInlineMath returns an inline math node for a source segment.
-func NewInlineMath(segment text.Segment, display bool) *InlineMath {
-	return &InlineMath{
-		Segment: segment,
-		Display: display,
-	}
+func newInlineMath(segment text.Segment) *InlineMath {
+	return &InlineMath{segment: segment}
 }
 
 // KindMathBlock is the node kind for display LaTeX math.
 var KindMathBlock = ast.NewNodeKind("MathBlock")
 
-// MathBlock is raw, multiline LaTeX delimited by standalone \[ and \] lines.
+// MathBlock is raw display LaTeX delimited by standalone \[ and \] or $$ lines.
 type MathBlock struct {
 	ast.BaseBlock
-
-	Indent int
 }
 
 // Kind implements ast.Node.
@@ -80,7 +72,6 @@ func (n *MathBlock) Dump(source []byte, level int) {
 	}, nil)
 }
 
-// NewMathBlock returns an empty display-math block.
-func NewMathBlock(indent int) *MathBlock {
-	return &MathBlock{Indent: indent}
+func newMathBlock() *MathBlock {
+	return &MathBlock{}
 }
