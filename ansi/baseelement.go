@@ -19,6 +19,8 @@ type BaseElement struct {
 	Prefix string
 	Suffix string
 	Style  StylePrimitive
+	// Raw preserves Markdown backslash escapes in Token.
+	Raw bool
 }
 
 func formatToken(format string, token string) (string, error) {
@@ -137,7 +139,10 @@ func (e *BaseElement) doRender(w io.Writer, st1, st2 StylePrimitive) error {
 			return err
 		}
 	}
-	_, _ = renderText(w, st2, escapeReplacer.Replace(s))
+	if !e.Raw {
+		s = escapeReplacer.Replace(s)
+	}
+	_, _ = renderText(w, st2, s)
 	return nil
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/yuin/goldmark/util"
 
 	"charm.land/glamour/v2/ansi"
+	"charm.land/glamour/v2/internal/latex"
 	styles "charm.land/glamour/v2/styles"
 	"github.com/alecthomas/chroma/v2"
 )
@@ -37,6 +38,7 @@ type TermRenderer struct {
 	ansiOptions ansi.Options
 	buf         bytes.Buffer
 	renderBuf   bytes.Buffer
+	latexMath   bool
 }
 
 // Render initializes a new TermRenderer and renders a markdown with a specific
@@ -209,6 +211,18 @@ func WithPreservedNewLines() TermRendererOption {
 func WithEmoji() TermRendererOption {
 	return func(tr *TermRenderer) error {
 		emoji.New().Extend(tr.md)
+		return nil
+	}
+}
+
+// WithLatexMath enables raw \(inline\) and \[display\] LaTeX math.
+func WithLatexMath() TermRendererOption {
+	return func(tr *TermRenderer) error {
+		if tr.latexMath {
+			return nil
+		}
+		latex.Extension.Extend(tr.md)
+		tr.latexMath = true
 		return nil
 	}
 }

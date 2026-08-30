@@ -115,6 +115,8 @@ type StyleConfig struct {
 	H6      StyleBlock `json:"h6"`
 
 	Text           StylePrimitive `json:"text"`
+	InlineMath     StylePrimitive `json:"inline_math"`
+	MathBlock      StyleBlock     `json:"math_block"`
 	Strikethrough  StylePrimitive `json:"strikethrough"`
 	Emph           StylePrimitive `json:"emph"`
 	Strong         StylePrimitive `json:"strong"`

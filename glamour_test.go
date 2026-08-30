@@ -13,6 +13,7 @@ import (
 	"charm.land/glamour/v2/styles"
 	"github.com/alecthomas/chroma/v2"
 	chromastyles "github.com/alecthomas/chroma/v2/styles"
+	xansi "github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/exp/golden"
 )
 
@@ -110,6 +111,66 @@ func TestWithPreservedNewLines(t *testing.T) {
 	}
 
 	golden.RequireEqual(t, []byte(b))
+}
+
+func TestWithLatexMathPreservesInlineAndDisplayExpressions(t *testing.T) {
+	r, err := NewTermRenderer(
+		WithLatexMath(),
+		WithWordWrap(80),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	source := strings.Join([]string{
+		"Inline \\(x_* = \\frac{\\{a\\}}{b} + **raw**\\) equation.",
+		"",
+		"\\[",
+		"E_* = mc^2 + [raw](url)",
+		"\\]",
+	}, "\n")
+	rendered, err := r.Render(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := trimRenderedRows(xansi.Strip(rendered)); got != source {
+		t.Fatalf("rendered LaTeX math =\n%q\nwant\n%q", got, source)
+	}
+}
+
+func TestWithLatexMathPreservesStreamingDelimiters(t *testing.T) {
+	r, err := NewTermRenderer(WithLatexMath())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, source := range []string{
+		"Streaming \\(x_*",
+		"Closing \\) and \\] delimiters",
+		"\\[\nE_* = mc^2",
+	} {
+		rendered, err := r.Render(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := trimRenderedRows(xansi.Strip(rendered)); got != source {
+			t.Errorf("rendered incomplete LaTeX math = %q, want %q", got, source)
+		}
+	}
+}
+
+func trimRenderedRows(value string) string {
+	lines := strings.Split(strings.Trim(value, "\r\n"), "\n")
+	for index := range lines {
+		lines[index] = strings.TrimRight(lines[index], " \t")
+	}
+	for len(lines) > 0 && lines[0] == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func TestStyles(t *testing.T) {

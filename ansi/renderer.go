@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"charm.land/glamour/v2/internal/latex"
 	"github.com/alecthomas/chroma/v2"
 	east "github.com/yuin/goldmark-emoji/ast"
 	"github.com/yuin/goldmark/ast"
@@ -52,6 +53,7 @@ func (r *ANSIRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindParagraph, r.renderNode)
 	reg.Register(ast.KindTextBlock, r.renderNode)
 	reg.Register(ast.KindThematicBreak, r.renderNode)
+	reg.Register(latex.KindMathBlock, r.renderNode)
 
 	// inlines
 	reg.Register(ast.KindAutoLink, r.renderNode)
@@ -62,6 +64,7 @@ func (r *ANSIRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
 	reg.Register(ast.KindRawHTML, r.renderNode)
 	reg.Register(ast.KindText, r.renderNode)
 	reg.Register(ast.KindString, r.renderNode)
+	reg.Register(latex.KindInlineMath, r.renderNode)
 
 	// tables
 	reg.Register(astext.KindTable, r.renderNode)

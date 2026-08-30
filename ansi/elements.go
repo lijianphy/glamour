@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"charm.land/glamour/v2/internal/autolink"
+	"charm.land/glamour/v2/internal/latex"
 	east "github.com/yuin/goldmark-emoji/ast"
 	"github.com/yuin/goldmark/ast"
 	astext "github.com/yuin/goldmark/extension/ast"
@@ -83,6 +84,16 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 				First: node.PreviousSibling() == nil,
 			},
 			Finisher: &ParagraphElement{},
+		}
+
+	case latex.KindMathBlock:
+		n := node.(*latex.MathBlock)
+		return Element{
+			Entering: "\n",
+			Renderer: &MathBlockElement{
+				Text:  string(n.Text(source)),
+				Style: ctx.options.Styles.MathBlock,
+			},
 		}
 
 	// Blockquote
@@ -184,6 +195,16 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 			Renderer: &BaseElement{
 				Token: html.UnescapeString(s),
 				Style: ctx.options.Styles.Text,
+			},
+		}
+
+	case latex.KindInlineMath:
+		n := node.(*latex.InlineMath)
+		return Element{
+			Renderer: &BaseElement{
+				Token: string(n.Text(source)),
+				Style: ctx.options.Styles.InlineMath,
+				Raw:   true,
 			},
 		}
 
