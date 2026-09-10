@@ -1,7 +1,6 @@
 package ansi
 
 import (
-	"html"
 	"strings"
 
 	"github.com/microcosm-cc/bluemonday"
@@ -42,5 +41,5 @@ func (ctx RenderContext) SanitizeHTML(s string, trimSpaces bool) string {
 		s = strings.TrimSpace(s)
 	}
 
-	return html.UnescapeString(s)
+	return decodeSourceText(s)
 }
