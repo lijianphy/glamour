@@ -90,8 +90,9 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		return Element{
 			Entering: "\n",
 			Renderer: &MathBlockElement{
-				Text:  string(n.Text(source)),
-				Style: ctx.options.Styles.MathBlock,
+				Text:   string(n.Text(source)),
+				closed: n.Closed,
+				Style:  ctx.options.Styles.MathBlock,
 			},
 		}
 
@@ -199,9 +200,13 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 
 	case latex.KindInlineMath:
 		n := node.(*latex.InlineMath)
+		token := string(n.Text(source))
+		if body := n.Body(source); body != nil {
+			token = renderMath(string(body), token, true, 0)
+		}
 		return Element{
 			Renderer: &BaseElement{
-				Token: string(n.Text(source)),
+				Token: token,
 				Style: ctx.options.Styles.InlineMath,
 				Raw:   true,
 			},

@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/exp/golden v0.0.0-20250806222409-83e3a29d542f
 	github.com/charmbracelet/x/exp/slice v0.0.0-20260622092256-25656177ba8e
+	github.com/doug/termtex v0.0.0-20260918165034-c407d5cf5251
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/rivo/uniseg v0.4.7
 	github.com/yuin/goldmark v1.8.2

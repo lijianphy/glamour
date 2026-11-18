@@ -215,7 +215,7 @@ func WithEmoji() TermRendererOption {
 	}
 }
 
-// WithLatexMath enables raw \(...\), \[...\], $...$, and $$...$$ LaTeX math.
+// WithLatexMath typesets delimited LaTeX math, leaving incomplete expressions raw.
 func WithLatexMath() TermRendererOption {
 	return func(tr *TermRenderer) error {
 		if tr.latexMath {

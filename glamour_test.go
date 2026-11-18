@@ -113,7 +113,7 @@ func TestWithPreservedNewLines(t *testing.T) {
 	golden.RequireEqual(t, []byte(b))
 }
 
-func TestWithLatexMathPreservesInlineAndDisplayExpressions(t *testing.T) {
+func TestWithLatexMathTypesetsInlineAndDisplayExpressions(t *testing.T) {
 	r, err := NewTermRenderer(
 		WithLatexMath(),
 		WithWordWrap(80),
@@ -122,29 +122,14 @@ func TestWithLatexMathPreservesInlineAndDisplayExpressions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	source := strings.Join([]string{
-		"Inline \\(x_* = \\frac{\\{a\\}}{b} + **raw**\\) equation.",
-		"",
-		"Dollar $x_* + **raw** + \\$5$ and $y = 2$ equations.",
-		"",
-		"\\[",
-		"E_* = mc^2 + [raw](url)",
-		"\\]",
-		"",
-		"$$",
-		"F_* = ma + **raw**",
-		"$$",
-		"",
-		"$$G_* = m_1m_2/r^2 + [raw](url)$$",
-		"",
-		"After dollar display.",
-	}, "\n")
+	source := "Inline \\(\\alpha\\) and $x^2$.\n\n\\[\n\\frac{a}{b}\n\\]\n\n$$y_1$$"
+	want := "Inline α and x².\n\n a\n───\n b\n\ny₁"
 	rendered, err := r.Render(source)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := trimRenderedRows(xansi.Strip(rendered)); got != source {
-		t.Fatalf("rendered LaTeX math =\n%q\nwant\n%q", got, source)
+	if got := trimRenderedRows(xansi.Strip(rendered)); got != want {
+		t.Fatalf("rendered LaTeX math =\n%q\nwant\n%q", got, want)
 	}
 }
 
@@ -182,8 +167,9 @@ func TestWithLatexMathLeavesOrdinaryDollarsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := trimRenderedRows(xansi.Strip(rendered)); got != source {
-		t.Fatalf("rendered dollar text = %q, want %q", got, source)
+	want := "Costs $10 and $20. Shell $HOME. Math x + 1."
+	if got := trimRenderedRows(xansi.Strip(rendered)); got != want {
+		t.Fatalf("rendered dollar text = %q, want %q", got, want)
 	}
 }
 

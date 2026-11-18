@@ -13,7 +13,8 @@ var KindInlineMath = ast.NewNodeKind("InlineMath")
 type InlineMath struct {
 	ast.BaseInline
 
-	segment text.Segment
+	segment      text.Segment
+	delimiterLen int // zero for incomplete expressions and standalone closers
 }
 
 // Kind implements ast.Node.
@@ -38,8 +39,17 @@ func (n *InlineMath) Dump(source []byte, level int) {
 	}, nil)
 }
 
-func newInlineMath(segment text.Segment) *InlineMath {
-	return &InlineMath{segment: segment}
+// Body returns the delimiter-free expression, or nil until it is closed.
+func (n *InlineMath) Body(source []byte) []byte {
+	if n.delimiterLen == 0 {
+		return nil
+	}
+	raw := n.Text(source)
+	return raw[n.delimiterLen : len(raw)-n.delimiterLen]
+}
+
+func newInlineMath(segment text.Segment, delimiterLen int) *InlineMath {
+	return &InlineMath{segment: segment, delimiterLen: delimiterLen}
 }
 
 // KindMathBlock is the node kind for display LaTeX math.
@@ -48,6 +58,8 @@ var KindMathBlock = ast.NewNodeKind("MathBlock")
 // MathBlock is raw display LaTeX delimited by standalone \[ and \] or $$ lines.
 type MathBlock struct {
 	ast.BaseBlock
+	// Closed reports whether the matching closing delimiter was consumed.
+	Closed bool
 }
 
 // Kind implements ast.Node.

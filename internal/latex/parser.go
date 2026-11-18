@@ -52,20 +52,22 @@ func parseBackslashMath(reader text.Reader, line []byte, segment text.Segment) a
 		closer = displayClose
 	case ')', ']':
 		reader.Advance(2)
-		return newInlineMath(segment.WithStop(segment.Start + 2))
+		return newInlineMath(segment.WithStop(segment.Start+2), 0)
 	default:
 		return nil
 	}
 
 	stop := findUnescapedDelimiter(line, closer, 2)
+	delimiterLen := len(closer)
 	if stop < 0 {
 		// Keeping an incomplete expression raw avoids delimiter flicker while
 		// Markdown is being streamed. Inline expressions do not consume a
 		// subsequent source line.
 		stop = len(line)
+		delimiterLen = 0
 	}
 	reader.Advance(stop)
-	return newInlineMath(segment.WithStop(segment.Start + stop))
+	return newInlineMath(segment.WithStop(segment.Start+stop), delimiterLen)
 }
 
 func parseDollarMath(reader text.Reader, line []byte, segment text.Segment) ast.Node {
@@ -75,7 +77,7 @@ func parseDollarMath(reader text.Reader, line []byte, segment text.Segment) ast.
 			return nil
 		}
 		reader.Advance(stop)
-		return newInlineMath(segment.WithStop(segment.Start + stop))
+		return newInlineMath(segment.WithStop(segment.Start+stop), 2)
 	}
 	if !validDollarOpener(line) {
 		return nil
@@ -86,7 +88,7 @@ func parseDollarMath(reader text.Reader, line []byte, segment text.Segment) ast.
 		return nil
 	}
 	reader.Advance(stop)
-	return newInlineMath(segment.WithStop(segment.Start + stop))
+	return newInlineMath(segment.WithStop(segment.Start+stop), 1)
 }
 
 func findUnescapedDelimiter(line, delimiter []byte, start int) int {
@@ -177,6 +179,7 @@ func (p *blockParser) Open(_ ast.Node, reader text.Reader, pc parser.Context) (a
 	}
 
 	node := newMathBlock()
+	node.Closed = singleLine
 	pc.Set(blockStateKey, &blockState{
 		node:       node,
 		indent:     pc.BlockIndent(),
@@ -205,6 +208,7 @@ func (p *blockParser) Continue(node ast.Node, reader text.Reader, pc parser.Cont
 	math.Lines().Append(mathLineSegment(line, segment, reader, state.indent))
 	reader.AdvanceToEOL()
 	if closed {
+		math.Closed = true
 		return parser.Close
 	}
 	return parser.Continue | parser.NoChildren
