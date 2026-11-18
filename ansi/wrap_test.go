@@ -7,6 +7,36 @@ import (
 	xansi "github.com/charmbracelet/x/ansi"
 )
 
+func TestUnicodeWrap(t *testing.T) {
+	for _, tt := range []struct {
+		text  string
+		width int
+		want  string
+	}{
+		{"AB中文测试", 6, "AB中文\n测试"},
+		{"中文测试", 5, "中文\n测试"},
+		{"あい\x1b[1mう\x1b[0m。え", 6, "あい\nう。え"},
+		{"あ「いう", 4, "あ\n「い\nう"},
+		{"ab👩\x1b[1m‍🔬\x1b[0m中", 3, "ab\n👩‍🔬\n中"},
+	} {
+		if got := xansi.Strip(wrapString(tt.text, tt.width, "")); got != tt.want {
+			t.Errorf("wrap(%q, %d) = %q, want %q", tt.text, tt.width, got, tt.want)
+		}
+	}
+}
+
+func BenchmarkWrapLongLine(b *testing.B) {
+	for name, phrase := range map[string]string{"ASCII": "example text ", "CJK": "中文测试。"} {
+		b.Run(name, func(b *testing.B) {
+			line := strings.Repeat(phrase, 500)
+			b.ReportAllocs()
+			for b.Loop() {
+				wrapString(line, 79, "")
+			}
+		})
+	}
+}
+
 func TestStrictWrapKeepsBreakpointWithinWidth(t *testing.T) {
 	tests := []struct {
 		name        string

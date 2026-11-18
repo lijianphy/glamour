@@ -8,7 +8,7 @@ import (
 	"unicode/utf8"
 
 	xansi "github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/ansi/parser"
+	"github.com/rivo/uniseg"
 )
 
 func wrapString(value string, width int, breakpoints string) string {
@@ -23,170 +23,97 @@ func wrapString(value string, width int, breakpoints string) string {
 	return out.String()
 }
 
-// strictWrap is based on x/ansi.Wrap, but moves a buffered word to the next
-// line when its trailing breakpoint would exceed the requested width.
+// strictWrap decides breaks on visible graphemes, not on ANSI style runs.
+// Byte offsets refer to plain text; emit advances through the original styled
+// text only when a row is committed.
 func strictWrap(value string, limit int, breakpoints string) string {
 	if limit < 1 {
 		return value
 	}
-
-	const nonBreakingSpace = '\u00a0'
-	var (
-		cluster    string
-		out        bytes.Buffer
-		word       bytes.Buffer
-		space      bytes.Buffer
-		spaceWidth int
-		lineWidth  int
-		wordWidth  int
-		state      = parser.GroundState
-	)
-
-	addSpace := func() {
-		if spaceWidth == 0 && space.Len() == 0 {
-			return
-		}
-		lineWidth += spaceWidth
-		out.Write(space.Bytes())
-		space.Reset()
-		spaceWidth = 0
+	plain := value
+	if strings.Contains(value, "\x1b") {
+		plain = xansi.Strip(value)
 	}
-	addWord := func() {
-		if word.Len() == 0 {
-			return
-		}
-		addSpace()
-		lineWidth += wordWidth
-		out.Write(word.Bytes())
-		word.Reset()
-		wordWidth = 0
-	}
-	addNewline := func() {
-		out.WriteByte('\n')
-		lineWidth = 0
-		space.Reset()
-		spaceWidth = 0
-	}
-	prepareBreakpoint := func(width int) {
-		if lineWidth+spaceWidth+wordWidth+width > limit {
-			if lineWidth > 0 {
-				addNewline()
-			} else {
-				space.Reset()
-				spaceWidth = 0
+	raw := value
+	var out strings.Builder
+	pos := 0
+	emit := func(end int, keep bool) {
+		for pos < end {
+			n := min(end-pos, len(raw))
+			if n == 0 {
+				break
 			}
-		}
-		if wordWidth+width > limit {
-			addWord()
-			addNewline()
-		}
-		addSpace()
-		addWord()
-	}
-
-	for index := 0; index < len(value); {
-		nextState, action := parser.Table.Transition(state, value[index])
-		if nextState == parser.Utf8State {
-			var width int
-			cluster, width = xansi.FirstGraphemeCluster(value[index:], xansi.GraphemeWidth)
-			index += len(cluster)
-
-			r, _ := utf8.DecodeRuneInString(cluster)
-			switch {
-			case r != utf8.RuneError && unicode.IsSpace(r) && r != nonBreakingSpace:
-				addWord()
-				space.WriteRune(r)
-				spaceWidth += width
-			case strings.ContainsAny(cluster, breakpoints):
-				prepareBreakpoint(width)
-				out.WriteString(cluster)
-				lineWidth += width
-			default:
-				if wordWidth+width > limit {
-					addWord()
-				}
-
-				word.WriteString(cluster)
-				wordWidth += width
-
-				if lineWidth+wordWidth+spaceWidth > limit {
-					addNewline()
-				}
-				if wordWidth == limit {
-					addWord()
-				}
+			if i := strings.IndexByte(raw[:n], '\x1b'); i >= 0 {
+				n = i
 			}
-
-			state = parser.GroundState
+			if n == 0 {
+				seq, _, size, _ := xansi.DecodeSequence(raw, 0, nil)
+				out.WriteString(seq)
+				raw = raw[size:]
+				continue
+			}
+			if keep {
+				out.WriteString(raw[:n])
+			}
+			raw = raw[n:]
+			pos += n
+		}
+	}
+	var start, cells, lastBreak, breakCells, trimAt int
+	// Spaces between words disappear only when they become the wrap point.
+	spaceStart := -1
+	g := uniseg.NewGraphemes(plain)
+	for g.Next() {
+		from, to := g.Positions()
+		cluster := g.Str()
+		r, _ := utf8.DecodeRuneInString(cluster)
+		if cluster == "\n" || cluster == "\r\n" {
+			if spaceStart >= 0 && cells > limit {
+				emit(spaceStart, true)
+				emit(from, false)
+			}
+			emit(to, true)
+			start, cells, lastBreak, spaceStart = to, 0, to, -1
 			continue
 		}
-
-		switch action {
-		case parser.PrintAction, parser.ExecuteAction:
-			switch r := rune(value[index]); {
-			case r == '\n':
-				if wordWidth == 0 {
-					if lineWidth+spaceWidth > limit {
-						lineWidth = 0
-					} else {
-						out.Write(space.Bytes())
-					}
-					space.Reset()
-					spaceWidth = 0
-				}
-				addWord()
-				addNewline()
-			case unicode.IsSpace(r):
-				addWord()
-				space.WriteRune(r)
-				spaceWidth++
-			case r == '-', runeContainsAny(r, breakpoints):
-				prepareBreakpoint(1)
-				out.WriteByte(value[index])
-				lineWidth++
-			default:
-				if lineWidth == limit {
-					addNewline()
-				}
-
-				word.WriteRune(r)
-				wordWidth++
-
-				if wordWidth == limit {
-					addWord()
-				}
-				if lineWidth+wordWidth+spaceWidth > limit {
-					addNewline()
-				}
+		w := g.Width()
+		if r != '\u00a0' && unicode.IsSpace(r) {
+			if spaceStart < 0 {
+				spaceStart = from
 			}
-		default:
-			word.WriteByte(value[index])
+			cells += max(1, w)
+			trimAt, lastBreak, breakCells = spaceStart, to, cells
+			continue
 		}
-
-		if state != parser.Utf8State {
-			state = nextState
+		spaceStart = -1
+		if cells+w > limit && lastBreak > start {
+			emit(trimAt, true)
+			emit(lastBreak, false)
+			if trimAt > start {
+				out.WriteByte('\n')
+			}
+			start, cells = lastBreak, cells-breakCells
 		}
-		index++
+		if cells+w > limit && from > start {
+			emit(from, true)
+			out.WriteByte('\n')
+			start, cells = from, 0
+		}
+		cells += w
+		// Keep ASCII word and configured punctuation behavior. Elsewhere use
+		// Unicode line breaks, including the boundary from ASCII into CJK.
+		unicodeBoundary := g.LineBreak() != uniseg.LineDontBreak && (r >= utf8.RuneSelf || (to < len(plain) && plain[to] >= utf8.RuneSelf))
+		if unicodeBoundary || r == '-' || strings.ContainsRune(breakpoints, r) {
+			trimAt, lastBreak, breakCells = to, to, cells
+		}
 	}
-
-	if wordWidth == 0 {
-		if lineWidth+spaceWidth > limit {
-			lineWidth = 0
-		} else {
-			out.Write(space.Bytes())
-		}
-		space.Reset()
-		spaceWidth = 0
+	if spaceStart >= 0 && cells > limit {
+		emit(spaceStart, true)
+		emit(len(plain), false)
 	}
-	addWord()
+	if pos == 0 {
+		return value
+	}
+	out.WriteString(raw)
 	return out.String()
-}
-
-func runeContainsAny(r rune, value string) bool {
-	for _, candidate := range value {
-		if r == candidate {
-			return true
-		}
-	}
-	return false
 }
