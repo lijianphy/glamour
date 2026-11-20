@@ -88,7 +88,6 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 	case latex.KindMathBlock:
 		n := node.(*latex.MathBlock)
 		return Element{
-			Entering: "\n",
 			Renderer: &MathBlockElement{
 				Text:   string(n.Text(source)),
 				closed: n.Closed,

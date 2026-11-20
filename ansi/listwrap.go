@@ -131,11 +131,16 @@ func markListOpaqueLines(value string, indent int) string {
 	var builder strings.Builder
 	builder.Grow(len(value) + strings.Count(value, "\n")*len(prefix) + len(prefix))
 	for value != "" {
-		builder.WriteString(prefix)
 		if index := strings.IndexByte(value, '\n'); index >= 0 {
+			builder.WriteString(prefix)
 			builder.WriteString(value[:index+1])
 			value = value[index+1:]
 		} else {
+			// A style reset after the last newline isn't another child row.
+			// Marking it would also mark any subsequent prose on that line.
+			if xansi.Strip(value) != "" {
+				builder.WriteString(prefix)
+			}
 			builder.WriteString(value)
 			break
 		}

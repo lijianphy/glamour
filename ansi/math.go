@@ -29,6 +29,11 @@ func (e *MathBlockElement) Render(w io.Writer, ctx RenderContext) error {
 			value = out
 		}
 	}
+	if !layout.inList {
+		if _, err := io.WriteString(w, "\n"); err != nil {
+			return err
+		}
+	}
 	return e.renderValue(w, ctx, value, layout)
 }
 
@@ -38,6 +43,9 @@ func (e *MathBlockElement) renderValue(w io.Writer, ctx RenderContext, value str
 	var blockBuffer bytes.Buffer
 	var iw *IndentWriter
 	if layout.inList {
+		if _, err := io.WriteString(w, blankLineSeparator(bs.Current().Block.String())); err != nil {
+			return err
+		}
 		target = &blockBuffer
 	} else {
 		iw = NewIndentWriter(w, layout.indent, func(_ io.Writer) {
@@ -59,7 +67,11 @@ func (e *MathBlockElement) renderValue(w io.Writer, ctx RenderContext, value str
 		return fmt.Errorf("glamour: error rendering math block: %w", err)
 	}
 	_, _ = renderText(target, bs.Current().Style.StylePrimitive, e.Style.BlockSuffix)
-	return finishListChildBlock(w, blockBuffer.String(), layout, iw)
+	if layout.inList {
+		_, err := io.WriteString(w, markListOpaqueLines(blockBuffer.String(), layout.indent)+"\n")
+		return err
+	}
+	return iw.Close()
 }
 
 func typesetMath(body string, inline bool, width int, nativeFaces bool) (string, bool) {
@@ -109,16 +121,7 @@ func inlineMath(ctx RenderContext, body string, raw *BaseElement, allowPromotion
 
 func (e *promotedMath) Render(w io.Writer, ctx RenderContext) error {
 	if e.layout.inList {
-		// The grid already ends with a newline. Leave a blank row between
-		// it and the surrounding list text, including adjacent promotions.
-		if _, err := io.WriteString(w, blankLineSeparator(ctx.blockStack.Current().Block.String())); err != nil {
-			return err
-		}
-		if err := e.block.renderValue(w, ctx, e.value, e.layout); err != nil {
-			return err
-		}
-		_, err := io.WriteString(w, "\n")
-		return err
+		return e.block.renderValue(w, ctx, e.value, e.layout)
 	}
 	return writeParagraphBlock(ctx, func(w io.Writer) error {
 		return e.block.renderValue(w, ctx, e.value, e.layout)

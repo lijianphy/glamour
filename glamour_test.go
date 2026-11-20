@@ -171,6 +171,46 @@ func TestTallInlineMathPromotion(t *testing.T) {
 	}
 }
 
+func TestDisplayMathInOrderedList(t *testing.T) {
+	const source = `3. **Dirac Spinor:**
+   Before the matrix:
+   $$\Psi = \begin{pmatrix} \chi_L \\ \chi_R \end{pmatrix}$$
+   Its 4 components account for **2 spin states** (up/down) $\times$ **2 particle/antiparticle states** (e.g., electron and positron).
+4. **Majorana Spinor:**`
+	for _, theme := range []string{styles.LightStyle, styles.DarkStyle} {
+		r, err := NewTermRenderer(WithLatexMath(), WithStandardStyle(theme), WithWordWrap(48))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.Render(source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rows := strings.Split(trimRenderedRows(xansi.Strip(out)), "\n")
+		var before, after, next int
+		for i, row := range rows {
+			switch strings.TrimSpace(row) {
+			case "Before the matrix:":
+				before = i
+			case "4. Majorana Spinor:":
+				next = i
+			}
+			if strings.HasPrefix(strings.TrimSpace(row), "Its 4 components") {
+				after = i
+			}
+		}
+		if before == 0 || after <= before+3 || next <= after+1 || rows[before+1] != "" || rows[after-1] != "" {
+			t.Fatalf("%s: missing matrix spacing or wrapped prose:\n%s", theme, strings.Join(rows, "\n"))
+		}
+		column := strings.Index(rows[before], "Before")
+		for _, row := range rows[after:next] {
+			if len(row)-len(strings.TrimLeft(row, " ")) != column {
+				t.Errorf("%s: expected indent %d on %q", theme, column, row)
+			}
+		}
+	}
+}
+
 func TestPromotedMathPreservesLineBoundaries(t *testing.T) {
 	r, err := NewTermRenderer(WithLatexMath(), WithPreservedNewLines())
 	if err != nil {

@@ -922,6 +922,16 @@ func TestRendererListTableFooterLinksUseListContentWidth(t *testing.T) {
 	}
 }
 
+func TestOpaqueListRowEndsBeforeTrailingReset(t *testing.T) {
+	const reset = "\x1b[0m"
+	got := markListOpaqueLines("grid\n"+reset, 3) + "following prose"
+	row, prose, _ := strings.Cut(got, "\n")
+	if indent, content, ok := parseListOpaqueLine(row); !ok || indent != 3 || content != "grid" ||
+		prose != reset+"following prose" {
+		t.Errorf("unexpected marked rows: %q", got)
+	}
+}
+
 func TestRendererWideListTablesDoNotInsertBlankRows(t *testing.T) {
 	options := listTableOptions(120)
 	source := strings.Join([]string{
