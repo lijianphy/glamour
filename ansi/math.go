@@ -41,7 +41,7 @@ func (e *MathBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	if e.closed {
 		// Both block fence forms have two bytes at each end.
 		raw := strings.TrimSpace(value)
-		value = renderMath(raw[2:len(raw)-2], value, false, layout.width)
+		value = renderMath(raw[2:len(raw)-2], value, false, layout.width, ctx.options.Styles.NativeMathFaces)
 	}
 	if value != "" && !strings.HasSuffix(value, "\n") {
 		value += "\n"
@@ -58,8 +58,8 @@ func (e *MathBlockElement) Render(w io.Writer, ctx RenderContext) error {
 	return finishListChildBlock(w, blockBuffer.String(), layout, iw)
 }
 
-func renderMath(body, raw string, inline bool, width int) string {
-	out, err := termtex.Render(body, termtex.Style{Inline: inline, Width: width})
+func renderMath(body, raw string, inline bool, width int, nativeFaces bool) string {
+	out, err := termtex.Render(body, termtex.Style{Inline: inline, Width: width, NativeFaces: nativeFaces})
 	if err != nil || out == "" || (inline && strings.ContainsRune(out, '\n')) {
 		return raw
 	}

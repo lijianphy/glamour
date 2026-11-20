@@ -4,6 +4,7 @@ import "charm.land/glamour/v2/ansi"
 
 // TokyoNightStyleConfig is the tokyo night style.
 var TokyoNightStyleConfig = ansi.StyleConfig{
+	NativeMathFaces: true,
 	Document: ansi.StyleBlock{
 		StylePrimitive: ansi.StylePrimitive{
 			BlockPrefix: "\n",

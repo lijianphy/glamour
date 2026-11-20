@@ -202,7 +202,7 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		n := node.(*latex.InlineMath)
 		token := string(n.Text(source))
 		if body := n.Body(source); body != nil {
-			token = renderMath(string(body), token, true, 0)
+			token = renderMath(string(body), token, true, 0, ctx.options.Styles.NativeMathFaces)
 		}
 		return Element{
 			Renderer: &BaseElement{

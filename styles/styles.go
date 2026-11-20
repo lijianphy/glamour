@@ -145,6 +145,7 @@ var (
 
 	// DarkStyleConfig is the default dark style.
 	DarkStyleConfig = ansi.StyleConfig{
+		NativeMathFaces: true,
 		Document: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				BlockPrefix: "\n",
@@ -355,6 +356,7 @@ var (
 
 	// LightStyleConfig is the default light style.
 	LightStyleConfig = ansi.StyleConfig{
+		NativeMathFaces: true,
 		Document: ansi.StyleBlock{
 			StylePrimitive: ansi.StylePrimitive{
 				BlockPrefix: "\n",
@@ -564,6 +566,7 @@ var (
 
 	// PinkStyleConfig is the default pink style.
 	PinkStyleConfig = ansi.StyleConfig{
+		NativeMathFaces: true,
 		Document: ansi.StyleBlock{
 			Margin: uintPtr(defaultMargin),
 		},

@@ -133,6 +133,29 @@ func TestWithLatexMathTypesetsInlineAndDisplayExpressions(t *testing.T) {
 	}
 }
 
+func TestLatexMathNativeFaces(t *testing.T) {
+	const input = "**before $\\mathbf{x}y$ after**\n\n$$\\sout{z}$$"
+	for _, theme := range []string{styles.DarkStyle, styles.NoTTYStyle} {
+		r, err := NewTermRenderer(WithLatexMath(), WithStandardStyle(theme))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.Render(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if theme == styles.DarkStyle {
+			for _, span := range []string{"\x1b[1mx\x1b[22m\x1b[1my", "\x1b[9mz\x1b[29m"} {
+				if !strings.Contains(out, span) {
+					t.Errorf("missing %q in %q", span, out)
+				}
+			}
+		} else if strings.Contains(out, "\x1b[") || !strings.Contains(out, "𝐱y") {
+			t.Errorf("unexpected plain output: %q", out)
+		}
+	}
+}
+
 func TestWithLatexMathPreservesIncompleteSource(t *testing.T) {
 	r, err := NewTermRenderer(WithLatexMath())
 	if err != nil {

@@ -101,10 +101,12 @@ type StyleTable struct {
 
 // StyleConfig is used to configure the styling behavior of an ANSIRenderer.
 type StyleConfig struct {
-	Document   StyleBlock `json:"document"`
-	BlockQuote StyleBlock `json:"block_quote"`
-	Paragraph  StyleBlock `json:"paragraph"`
-	List       StyleList  `json:"list"`
+	// NativeMathFaces renders bold, italic and struck math with terminal SGR.
+	NativeMathFaces bool       `json:"native_math_faces,omitempty"`
+	Document        StyleBlock `json:"document"`
+	BlockQuote      StyleBlock `json:"block_quote"`
+	Paragraph       StyleBlock `json:"paragraph"`
+	List            StyleList  `json:"list"`
 
 	Heading StyleBlock `json:"heading"`
 	H1      StyleBlock `json:"h1"`

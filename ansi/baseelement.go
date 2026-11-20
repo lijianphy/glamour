@@ -88,6 +88,26 @@ func renderText(w io.Writer, rules StylePrimitive, s string) (int, error) { //no
 		style = style.Blink(true)
 	}
 
+	// A nested math span may switch off an attribute that also belongs to
+	// the enclosing Markdown style. Restore it for the rest of the token.
+	if strings.Contains(s, "\x1b[") {
+		if rules.Bold != nil && *rules.Bold || rules.Faint != nil && *rules.Faint {
+			restore := "\x1b[22m"
+			if rules.Bold != nil && *rules.Bold {
+				restore += "\x1b[1m"
+			}
+			if rules.Faint != nil && *rules.Faint {
+				restore += "\x1b[2m"
+			}
+			s = strings.ReplaceAll(s, "\x1b[22m", restore)
+		}
+		if rules.Italic != nil && *rules.Italic {
+			s = strings.ReplaceAll(s, "\x1b[23m", "\x1b[3m")
+		}
+		if rules.CrossedOut != nil && *rules.CrossedOut {
+			s = strings.ReplaceAll(s, "\x1b[29m", "\x1b[9m")
+		}
+	}
 	n, err := io.WriteString(w, style.Styled(s))
 	if err != nil {
 		return n, fmt.Errorf("glamour: error writing to writer: %w", err)

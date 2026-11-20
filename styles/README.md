@@ -5,6 +5,13 @@ re-generate them, run:
 
     go generate ..
 
+## Math faces
+
+With LaTeX math enabled, the top-level JSON setting `"native_math_faces": true`
+uses the terminal's bold, italic, and strikethrough for explicit math commands
+in inline and display math. The colored built-in themes enable it; `ascii`,
+`notty`, and themes that omit it retain the Unicode rendering.
+
 ## Block Elements
 
 Block elements contain other elements and are rendered around them. All block
