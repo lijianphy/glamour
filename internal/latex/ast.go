@@ -55,7 +55,7 @@ func newInlineMath(segment text.Segment, delimiterLen int) *InlineMath {
 // KindMathBlock is the node kind for display LaTeX math.
 var KindMathBlock = ast.NewNodeKind("MathBlock")
 
-// MathBlock is raw display LaTeX delimited by standalone \[ and \] or $$ lines.
+// MathBlock is raw display LaTeX delimited by \[ and \] or by $$.
 type MathBlock struct {
 	ast.BaseBlock
 	// Closed reports whether the matching closing delimiter was consumed.

@@ -215,6 +215,12 @@ func WithEmoji() TermRendererOption {
 	}
 }
 
+// LatexMathBlocks returns the Goldmark parser option used by WithLatexMath
+// for display math. Use it to find the same block boundaries when streaming.
+func LatexMathBlocks() parser.Option {
+	return latex.BlockParserOption()
+}
+
 // WithLatexMath typesets delimited LaTeX math, leaving incomplete expressions raw.
 func WithLatexMath() TermRendererOption {
 	return func(tr *TermRenderer) error {

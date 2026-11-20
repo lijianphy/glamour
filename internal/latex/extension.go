@@ -15,11 +15,14 @@ var Extension = &extension{}
 // Extend implements goldmark.Extender.
 func (e *extension) Extend(markdown goldmark.Markdown) {
 	markdown.Parser().AddOptions(
-		parser.WithBlockParsers(
-			util.Prioritized(newBlockParser(), 650),
-		),
+		BlockParserOption(),
 		parser.WithInlineParsers(
 			util.Prioritized(newInlineParser(), 50),
 		),
 	)
+}
+
+// BlockParserOption registers display math blocks without any inline syntax.
+func BlockParserOption() parser.Option {
+	return parser.WithBlockParsers(util.Prioritized(newBlockParser(), 650))
 }

@@ -230,7 +230,8 @@ func (p *blockParser) CanAcceptIndentedLine() bool {
 }
 
 func delimiterLine(line, delimiter []byte) bool {
-	return bytes.Equal(bytes.TrimSpace(line), delimiter)
+	value := bytes.TrimSpace(line)
+	return bytes.HasSuffix(value, delimiter) && !escapedBackslash(value, len(value)-len(delimiter))
 }
 
 func mathBlockOpening(line []byte, offset int) (closer []byte, singleLine bool, ok bool) {
@@ -239,23 +240,23 @@ func mathBlockOpening(line []byte, offset int) (closer []byte, singleLine bool, 
 	}
 	value := bytes.TrimSpace(line[offset:])
 	switch {
-	case bytes.Equal(value, displayOpen):
-		return displayClose, false, true
-	case bytes.Equal(value, dollarFence):
-		return dollarFence, false, true
-	case singleLineDollarBlock(value):
-		return dollarFence, true, true
+	case bytes.HasPrefix(value, displayOpen):
+		closer = displayClose
+	case bytes.HasPrefix(value, dollarFence):
+		closer = dollarFence
 	default:
 		return nil, false, false
 	}
-}
-
-func singleLineDollarBlock(value []byte) bool {
-	return len(value) > 4 &&
-		bytes.HasPrefix(value, dollarFence) &&
-		bytes.HasSuffix(value, dollarFence) &&
-		len(bytes.TrimSpace(value[2:len(value)-2])) > 0 &&
-		!escapedBackslash(value, len(value)-2)
+	// Both opening fences are two bytes. A closer followed by prose
+	// belongs to the inline parser, not to a display block.
+	end := findUnescapedDelimiter(value, closer, 2)
+	if end < 0 {
+		return closer, false, true
+	}
+	if end == len(value) && len(bytes.TrimSpace(value[2:end-len(closer)])) > 0 {
+		return closer, true, true
+	}
+	return nil, false, false
 }
 
 func mathLineSegment(line []byte, segment text.Segment, reader text.Reader, indent int) text.Segment {

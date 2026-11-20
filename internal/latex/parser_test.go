@@ -155,6 +155,11 @@ func TestDollarInlineRules(t *testing.T) {
 		wantInline []string
 	}{
 		{
+			name:       "leading double dollar followed by prose",
+			source:     "$$x$$ is not a display block",
+			wantInline: []string{"$$x$$"},
+		},
+		{
 			name:       "simple",
 			source:     "$x$",
 			wantInline: []string{"$x$"},
@@ -205,6 +210,27 @@ func TestDollarInlineRules(t *testing.T) {
 				t.Fatalf("display math = %#v, want none", blocks)
 			}
 		})
+	}
+}
+
+func TestAttachedDisplayBlockFences(t *testing.T) {
+	for _, body := range []string{
+		"$$\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}$$\n",
+		"$$a\nb\n$$\n",
+		"$$\na\nb$$\n",
+		"$$a\r\nb\\$$\r\nc$$  \r\n",
+		"\\[x^2\\]\n",
+		"\\[\\begin{aligned}\na &= b \\\\\nc &= d\n\\end{aligned}\\]\n",
+		"\\[a\nb\n\\]\n",
+		"\\[\na\nb\\]\n",
+		"\\[a\r\nb\\\\]\r\nc\\]  \r\n",
+	} {
+		source := []byte(body + "After.\n")
+		doc := goldmark.New(goldmark.WithExtensions(Extension)).Parser().Parse(text.NewReader(source))
+		block, ok := doc.FirstChild().(*MathBlock)
+		if !ok || !block.Closed || string(block.Text(source)) != body || block.NextSibling() == nil {
+			t.Errorf("incorrect block boundaries for %q", source)
+		}
 	}
 }
 
