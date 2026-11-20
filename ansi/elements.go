@@ -200,17 +200,11 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 
 	case latex.KindInlineMath:
 		n := node.(*latex.InlineMath)
-		token := string(n.Text(source))
+		raw := &BaseElement{Token: string(n.Text(source)), Style: ctx.options.Styles.InlineMath, Raw: true}
 		if body := n.Body(source); body != nil {
-			token = renderMath(string(body), token, true, 0, ctx.options.Styles.NativeMathFaces)
+			return Element{Renderer: inlineMath(ctx, string(body), raw, mathInProse(node))}
 		}
-		return Element{
-			Renderer: &BaseElement{
-				Token: token,
-				Style: ctx.options.Styles.InlineMath,
-				Raw:   true,
-			},
-		}
+		return Element{Renderer: raw}
 
 	case ast.KindEmphasis:
 		n := node.(*ast.Emphasis)
@@ -509,6 +503,24 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		fmt.Println("Warning: unhandled element", node.Kind().String())
 		return Element{}
 	}
+}
+
+// Only prose has block flow. A table cell, heading or link cannot safely
+// host a paragraph-width grid.
+func mathInProse(node ast.Node) bool {
+	for p := node.Parent(); p != nil; p = p.Parent() {
+		switch p.Kind() {
+		case ast.KindParagraph:
+			return true
+		case ast.KindTextBlock:
+			return p.Parent() != nil && p.Parent().Kind() == ast.KindListItem
+		case ast.KindEmphasis:
+			continue
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func (tr *ANSIRenderer) newExitElement(node ast.Node, source []byte) Element {

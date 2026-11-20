@@ -133,6 +133,58 @@ func TestWithLatexMathTypesetsInlineAndDisplayExpressions(t *testing.T) {
 	}
 }
 
+func TestTallInlineMathPromotion(t *testing.T) {
+	const frac = `$\dfrac{a}{b}$`
+	r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ source, want string }{
+		{"before " + frac + " after", "before\n a\n───\n b\nafter"},
+		{frac + " " + frac, " a\n───\n b\n a\n───\n b"},
+		{"> before " + frac + " after", "before\n a\n───\n b\nafter"},
+	} {
+		out, err := r.Render(tt.source)
+		if err != nil || trimRenderedRows(xansi.Strip(out)) != tt.want {
+			t.Errorf("Render(%q) = %q, %v; want %q", tt.source, out, err, tt.want)
+		}
+	}
+	out, err := r.Render("| value | next |\n|---|---|\n| " + frac + " | $x^2$ |")
+	if err != nil || !strings.Contains(out, frac) || !strings.Contains(out, "x²") {
+		t.Errorf("table must retain tall source and render one-line math: %q, %v", out, err)
+	}
+	wide := `$\dfrac{\text{` + strings.Repeat("a", 45) + `}}{b}$`
+	out, err = r.Render(wide)
+	if err != nil || !strings.Contains(strings.Join(strings.Fields(xansi.Strip(out)), ""), wide) {
+		t.Errorf("overwide equation must retain source: %q, %v", out, err)
+	}
+	r, err = NewTermRenderer(WithLatexMath(), WithStandardStyle(styles.DarkStyle), WithWordWrap(40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err = r.Render("- before " + frac + " after")
+	rows := strings.Split(trimRenderedRows(xansi.Strip(out)), "\n")
+	if err != nil || len(rows) != 5 || strings.Index(rows[0], "before") != strings.Index(rows[2], "───") ||
+		strings.Index(rows[1], "a") != strings.Index(rows[2], "───")+1 || !strings.Contains(rows[4], "after") {
+		t.Errorf("list equation lost its content column: %q, %v", rows, err)
+	}
+}
+
+func TestPromotedMathPreservesLineBoundaries(t *testing.T) {
+	r, err := NewTermRenderer(WithLatexMath(), WithPreservedNewLines())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const frac = `$\dfrac{a}{b}$`
+	const grid = " a\n───\n b"
+	for _, sep := range []string{"\n", "\n\n"} {
+		out, err := r.Render("Before" + sep + frac + sep + "After")
+		if got, want := trimRenderedRows(xansi.Strip(out)), "Before"+sep+grid+sep+"After"; err != nil || got != want {
+			t.Errorf("separator %q: got %q, %v; want %q", sep, got, err, want)
+		}
+	}
+}
+
 func TestLatexMathNativeFaces(t *testing.T) {
 	const input = "**before $\\mathbf{x}y$ after**\n\n$$\\sout{z}$$"
 	for _, theme := range []string{styles.DarkStyle, styles.NoTTYStyle} {

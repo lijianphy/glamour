@@ -10,8 +10,9 @@ import (
 // After all children have been rendered into it, it applies indentation and
 // margins around them and writes everything to the parent rendering buffer.
 type BlockElement struct {
-	Block *bytes.Buffer
-	Style StyleBlock
+	flowStart int // paragraph bytes already laid out, including promoted math
+	Block     *bytes.Buffer
+	Style     StyleBlock
 	// IndentOffset is an already-owned left indent, such as a parent list
 	// item's content column.
 	IndentOffset int

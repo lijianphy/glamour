@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	xansi "github.com/charmbracelet/x/ansi"
 )
 
 // A ParagraphElement is used to render individual paragraphs.
@@ -39,17 +41,15 @@ func (e *ParagraphElement) Finish(w io.Writer, ctx RenderContext) error {
 	mw := NewMarginWriter(ctx, w, rules)
 	defer mw.Close() //nolint:errcheck
 	if len(strings.TrimSpace(bs.Current().Block.String())) > 0 {
-		blk := bs.Current().Block.String()
-		if !ctx.options.PreserveNewLines {
-			blk = strings.ReplaceAll(blk, "\n", " ")
-		}
-		flow := wrapString(blk, int(bs.Width(ctx)), "")
-
-		_, err := io.WriteString(mw, flow)
+		current := bs.Current()
+		flow := paragraphTail(&current, ctx)
+		_, err := io.WriteString(mw, current.Block.String()[:current.flowStart]+flow)
 		if err != nil {
 			return fmt.Errorf("glamour: error writing to writer: %w", err)
 		}
-		_, _ = io.WriteString(mw, "\n")
+		if flow != "" || current.flowStart == 0 {
+			_, _ = io.WriteString(mw, "\n")
+		}
 	}
 
 	_, _ = renderText(w, bs.Current().Style.StylePrimitive, rules.Suffix)
@@ -58,4 +58,45 @@ func (e *ParagraphElement) Finish(w io.Writer, ctx RenderContext) error {
 	bs.Current().Block.Reset()
 	bs.Pop()
 	return nil
+}
+
+// Commit pending prose, then protect the block's already-laid-out rows from reflow.
+func writeParagraphBlock(ctx RenderContext, writeBlock func(io.Writer) error) error {
+	stack := *ctx.blockStack
+	current := &stack[len(stack)-1]
+	flow := paragraphTail(current, ctx)
+	current.Block.Truncate(current.flowStart)
+	plain := xansi.Strip(flow)
+	if strings.TrimSpace(plain) != "" || strings.ContainsRune(plain, '\n') {
+		current.Block.WriteString(flow)
+		if !strings.HasSuffix(plain, "\n") {
+			current.Block.WriteByte('\n')
+		}
+	}
+	if err := writeBlock(current.Block); err != nil {
+		return err
+	}
+	current.flowStart = current.Block.Len()
+	return nil
+}
+
+func paragraphTail(current *BlockElement, ctx RenderContext) string {
+	text := current.Block.String()[current.flowStart:]
+	if !ctx.options.PreserveNewLines {
+		text = strings.ReplaceAll(text, "\n", " ")
+	}
+	if current.flowStart != 0 {
+		plain := xansi.Strip(text)
+		// The block already ended its row. Drop one redundant source newline,
+		// retaining surrounding style escapes and any further blank lines.
+		if ctx.options.PreserveNewLines && strings.HasPrefix(plain, "\n") {
+			i := strings.IndexByte(text, '\n')
+			text = text[:i] + text[i+1:]
+			plain = plain[1:]
+		}
+		if n := len(plain) - len(strings.TrimLeft(plain, " ")); n > 0 {
+			text = xansi.TruncateLeft(text, n, "")
+		}
+	}
+	return wrapString(text, int(ctx.blockStack.Width(ctx)), "")
 }
