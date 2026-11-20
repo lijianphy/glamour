@@ -109,10 +109,16 @@ func inlineMath(ctx RenderContext, body string, raw *BaseElement, allowPromotion
 
 func (e *promotedMath) Render(w io.Writer, ctx RenderContext) error {
 	if e.layout.inList {
-		if _, err := io.WriteString(w, "\n"); err != nil {
+		// The grid already ends with a newline. Leave a blank row between
+		// it and the surrounding list text, including adjacent promotions.
+		if _, err := io.WriteString(w, blankLineSeparator(ctx.blockStack.Current().Block.String())); err != nil {
 			return err
 		}
-		return e.block.renderValue(w, ctx, e.value, e.layout)
+		if err := e.block.renderValue(w, ctx, e.value, e.layout); err != nil {
+			return err
+		}
+		_, err := io.WriteString(w, "\n")
+		return err
 	}
 	return writeParagraphBlock(ctx, func(w io.Writer) error {
 		return e.block.renderValue(w, ctx, e.value, e.layout)

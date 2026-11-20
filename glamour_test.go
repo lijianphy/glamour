@@ -140,9 +140,9 @@ func TestTallInlineMathPromotion(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tt := range []struct{ source, want string }{
-		{"before " + frac + " after", "before\n a\n───\n b\nafter"},
-		{frac + " " + frac, " a\n───\n b\n a\n───\n b"},
-		{"> before " + frac + " after", "before\n a\n───\n b\nafter"},
+		{"before " + frac + " after", "before\n\n a\n───\n b\n\nafter"},
+		{frac + " " + frac, " a\n───\n b\n\n a\n───\n b"},
+		{"> before " + frac + " after", "before\n\n a\n───\n b\n\nafter"},
 	} {
 		out, err := r.Render(tt.source)
 		if err != nil || trimRenderedRows(xansi.Strip(out)) != tt.want {
@@ -164,8 +164,9 @@ func TestTallInlineMathPromotion(t *testing.T) {
 	}
 	out, err = r.Render("- before " + frac + " after")
 	rows := strings.Split(trimRenderedRows(xansi.Strip(out)), "\n")
-	if err != nil || len(rows) != 5 || strings.Index(rows[0], "before") != strings.Index(rows[2], "───") ||
-		strings.Index(rows[1], "a") != strings.Index(rows[2], "───")+1 || !strings.Contains(rows[4], "after") {
+	if err != nil || len(rows) != 7 || rows[1] != "" || rows[5] != "" ||
+		strings.Index(rows[0], "before") != strings.Index(rows[3], "───") ||
+		strings.Index(rows[2], "a") != strings.Index(rows[3], "───")+1 || !strings.Contains(rows[6], "after") {
 		t.Errorf("list equation lost its content column: %q, %v", rows, err)
 	}
 }
@@ -179,7 +180,7 @@ func TestPromotedMathPreservesLineBoundaries(t *testing.T) {
 	const grid = " a\n───\n b"
 	for _, sep := range []string{"\n", "\n\n"} {
 		out, err := r.Render("Before" + sep + frac + sep + "After")
-		if got, want := trimRenderedRows(xansi.Strip(out)), "Before"+sep+grid+sep+"After"; err != nil || got != want {
+		if got, want := trimRenderedRows(xansi.Strip(out)), "Before\n\n"+grid+"\n\nAfter"; err != nil || got != want {
 			t.Errorf("separator %q: got %q, %v; want %q", sep, got, err, want)
 		}
 	}

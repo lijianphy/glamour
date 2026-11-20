@@ -69,9 +69,10 @@ func writeParagraphBlock(ctx RenderContext, writeBlock func(io.Writer) error) er
 	plain := xansi.Strip(flow)
 	if strings.TrimSpace(plain) != "" || strings.ContainsRune(plain, '\n') {
 		current.Block.WriteString(flow)
-		if !strings.HasSuffix(plain, "\n") {
-			current.Block.WriteByte('\n')
-		}
+		current.Block.WriteString(blankLineSeparator(plain))
+	} else if current.flowStart != 0 {
+		// Adjacent grids: the preceding grid already ended its row.
+		current.Block.WriteByte('\n')
 	}
 	if err := writeBlock(current.Block); err != nil {
 		return err
@@ -85,18 +86,28 @@ func paragraphTail(current *BlockElement, ctx RenderContext) string {
 	if !ctx.options.PreserveNewLines {
 		text = strings.ReplaceAll(text, "\n", " ")
 	}
-	if current.flowStart != 0 {
-		plain := xansi.Strip(text)
-		// The block already ended its row. Drop one redundant source newline,
-		// retaining surrounding style escapes and any further blank lines.
-		if ctx.options.PreserveNewLines && strings.HasPrefix(plain, "\n") {
-			i := strings.IndexByte(text, '\n')
-			text = text[:i] + text[i+1:]
-			plain = plain[1:]
-		}
-		if n := len(plain) - len(strings.TrimLeft(plain, " ")); n > 0 {
-			text = xansi.TruncateLeft(text, n, "")
-		}
+	if current.flowStart == 0 {
+		return wrapString(text, int(ctx.blockStack.Width(ctx)), "")
+	}
+	plain := xansi.Strip(text)
+	trimmed := strings.TrimLeft(plain, " ")
+	if n := len(plain) - len(trimmed); n > 0 {
+		text = xansi.TruncateLeft(text, n, "")
+	}
+	if strings.TrimSpace(trimmed) != "" && !strings.HasPrefix(trimmed, "\n") {
+		text = "\n" + text
 	}
 	return wrapString(text, int(ctx.blockStack.Width(ctx)), "")
+}
+
+// Return only the line breaks still needed to leave a blank row.
+func blankLineSeparator(text string) string {
+	for _, missing := range []string{"\n\n", "\n"} {
+		var ok bool
+		text, ok = strings.CutSuffix(strings.TrimRight(text, " \t"), "\n")
+		if !ok {
+			return missing
+		}
+	}
+	return ""
 }
