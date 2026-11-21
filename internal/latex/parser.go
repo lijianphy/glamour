@@ -28,22 +28,31 @@ func (p *inlineParser) Trigger() []byte {
 
 func (p *inlineParser) Parse(_ ast.Node, reader text.Reader, _ parser.Context) ast.Node {
 	line, segment := reader.PeekLine()
-	end := lineContentEnd(line)
-	if end < 2 {
+	stop, delimiterLen := matchInlineMath(line[:lineContentEnd(line)])
+	if stop == 0 {
 		return nil
 	}
-	line = line[:end]
+	reader.Advance(stop)
+	return newInlineMath(segment.WithStop(segment.Start+stop), delimiterLen)
+}
+
+// matchInlineMath returns the source length and delimiter width. A nonempty
+// match with zero delimiter width is literal (incomplete or a stray closer).
+func matchInlineMath(line []byte) (int, int) {
+	if len(line) < 2 {
+		return 0, 0
+	}
 	switch line[0] {
-	case '\\':
-		return parseBackslashMath(reader, line, segment)
 	case '$':
-		return parseDollarMath(reader, line, segment)
+		return matchDollarMath(line)
+	case '\\':
+		return matchBackslashMath(line)
 	default:
-		return nil
+		return 0, 0
 	}
 }
 
-func parseBackslashMath(reader text.Reader, line []byte, segment text.Segment) ast.Node {
+func matchBackslashMath(line []byte) (int, int) {
 	var closer []byte
 	switch line[1] {
 	case '(':
@@ -51,44 +60,32 @@ func parseBackslashMath(reader text.Reader, line []byte, segment text.Segment) a
 	case '[':
 		closer = displayClose
 	case ')', ']':
-		reader.Advance(2)
-		return newInlineMath(segment.WithStop(segment.Start+2), 0)
+		return 2, 0
 	default:
-		return nil
+		return 0, 0
 	}
 
-	stop := findUnescapedDelimiter(line, closer, 2)
-	delimiterLen := len(closer)
-	if stop < 0 {
-		// Keeping an incomplete expression raw avoids delimiter flicker while
-		// Markdown is being streamed. Inline expressions do not consume a
-		// subsequent source line.
-		stop = len(line)
-		delimiterLen = 0
+	if stop := findUnescapedDelimiter(line, closer, 2); stop >= 0 {
+		return stop, 2
 	}
-	reader.Advance(stop)
-	return newInlineMath(segment.WithStop(segment.Start+stop), delimiterLen)
+	return len(line), 0
 }
 
-func parseDollarMath(reader text.Reader, line []byte, segment text.Segment) ast.Node {
+func matchDollarMath(line []byte) (int, int) {
 	if line[1] == '$' {
 		stop := findUnescapedDelimiter(line, dollarFence, 2)
 		if stop < 0 || len(bytes.TrimSpace(line[2:stop-2])) == 0 {
-			return nil
+			return 0, 0
 		}
-		reader.Advance(stop)
-		return newInlineMath(segment.WithStop(segment.Start+stop), 2)
+		return stop, 2
 	}
 	if !validDollarOpener(line) {
-		return nil
+		return 0, 0
 	}
-
-	stop := findSingleDollarClose(line)
-	if stop < 0 {
-		return nil
+	if stop := findSingleDollarClose(line); stop >= 0 {
+		return stop, 1
 	}
-	reader.Advance(stop)
-	return newInlineMath(segment.WithStop(segment.Start+stop), 1)
+	return 0, 0
 }
 
 func findUnescapedDelimiter(line, delimiter []byte, start int) int {

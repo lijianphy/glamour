@@ -72,7 +72,8 @@ func NewTermRenderer(options ...TermRendererOption) (*TermRenderer, error) {
 	tr := &TermRenderer{
 		md: goldmark.New(
 			goldmark.WithExtensions(
-				extension.GFM,
+				// Install the GFM table extension below, after math is configured.
+				extension.Linkify, extension.Strikethrough, extension.TaskList,
 				extension.DefinitionList,
 			),
 			goldmark.WithParserOptions(
@@ -87,6 +88,11 @@ func NewTermRenderer(options ...TermRendererOption) (*TermRenderer, error) {
 		if err := o(tr); err != nil {
 			return nil, err
 		}
+	}
+	if tr.latexMath {
+		tr.md.Parser().AddOptions(latex.TableParserOptions()...)
+	} else {
+		extension.Table.Extend(tr.md)
 	}
 	ar := ansi.NewRenderer(tr.ansiOptions)
 	tr.md.SetRenderer(
@@ -226,7 +232,9 @@ func LatexMathBlocks() parser.Option {
 
 // WithLatexMath typesets delimited LaTeX math, leaving incomplete expressions raw.
 // In a table cell, $$...$$ and \[...\] request display layout on separate
-// rendered lines. The delimiters must be on the same Markdown source row.
+// rendered lines. Pipes inside complete math expressions are literal, not cell
+// separators. The delimiters must be on the same Markdown source row. Code
+// spans still follow GFM table rules: write \| for a literal pipe.
 func WithLatexMath() TermRendererOption {
 	return func(tr *TermRenderer) error {
 		if tr.latexMath {
