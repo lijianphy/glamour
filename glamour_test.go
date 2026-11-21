@@ -149,12 +149,8 @@ func TestTallInlineMathPromotion(t *testing.T) {
 			t.Errorf("Render(%q) = %q, %v; want %q", tt.source, out, err, tt.want)
 		}
 	}
-	out, err := r.Render("| value | next |\n|---|---|\n| " + frac + " | $x^2$ |")
-	if err != nil || !strings.Contains(out, frac) || !strings.Contains(out, "x²") {
-		t.Errorf("table must retain tall source and render one-line math: %q, %v", out, err)
-	}
 	wide := `$\dfrac{\text{` + strings.Repeat("a", 45) + `}}{b}$`
-	out, err = r.Render(wide)
+	out, err := r.Render(wide)
 	if err != nil || !strings.Contains(strings.Join(strings.Fields(xansi.Strip(out)), ""), wide) {
 		t.Errorf("overwide equation must retain source: %q, %v", out, err)
 	}
@@ -168,6 +164,175 @@ func TestTallInlineMathPromotion(t *testing.T) {
 		strings.Index(rows[0], "before") != strings.Index(rows[3], "───") ||
 		strings.Index(rows[2], "a") != strings.Index(rows[3], "───")+1 || !strings.Contains(rows[6], "after") {
 		t.Errorf("list equation lost its content column: %q, %v", rows, err)
+	}
+}
+
+func TestTableMathLayout(t *testing.T) {
+	const source = `| $\dfrac{a}{b}$ | $\frac{a}{b}$ |
+| ---: | :---: |
+| before $$\frac{x}{y}$$ after | **\[\frac{m}{n}\]** |
+| left $$z$$ right | $x^2$ |`
+	// The header rule follows the denominator. Fractions stay rectangular
+	// under right/center alignment, even with prose on either side.
+	const want = `        a  │  a/b
+       ─── │
+        b  │
+───────────┼────────
+    before │   m
+        x  │  ───
+       ─── │   n
+        y  │
+     after │
+      left │   x²
+         z │
+     right │`
+	for _, wrap := range []bool{true, false} {
+		r, err := NewTermRenderer(WithLatexMath(), WithTableWrap(wrap), WithWordWrap(20))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.Render(source)
+		if got := trimRenderedRows(xansi.Strip(out)); err != nil || got != want {
+			t.Errorf("wrap=%t:\n%s\nwant:\n%s\nerr: %v", wrap, got, want, err)
+		}
+	}
+}
+
+func TestTableMathFitBoundary(t *testing.T) {
+	const source = "| h |\n|---|\n" + `| $$\frac{a}{b}$$ |`
+	for _, width := range []int{4, 5} { // two margin columns + 2 or 3 content columns
+		r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(width))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.Render(source)
+		rows := strings.Split(trimRenderedRows(xansi.Strip(out)), "\n")
+		if err != nil || len(rows) < 3 {
+			t.Fatalf("width=%d: %q, %v", width, out, err)
+		}
+		for _, row := range rows {
+			if xansi.StringWidth(row) > width {
+				t.Fatalf("width=%d: overwide row %q", width, row)
+			}
+		}
+		body := strings.Join(strings.Fields(strings.Join(rows[2:], "")), "")
+		want := `$$\frac{a}{b}$$`
+		if width == 5 {
+			want = "a───b"
+		}
+		if body != want {
+			t.Errorf("width=%d: body=%q, want %q", width, body, want)
+		}
+	}
+}
+
+func TestTableMathWithTabbedProse(t *testing.T) {
+	const source = "| h | v |\n|---|---|\n| A\tB | " + `$$\frac{x}{y}$$ |`
+	for _, tt := range []struct {
+		width int
+		want  string
+	}{
+		// With no width limit each column uses its natural width, including
+		// the four spaces that Lip Gloss uses for a tab.
+		{0, " h      │ v\n────────┼─────\n A    B │  x\n        │ ───\n        │  y"},
+		// Every physical row keeps its separator, even when the prose wraps.
+		{12, " h    │ v\n──────┼─────\n A    │  x\n B    │ ───\n      │  y"},
+	} {
+		r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(tt.width))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.Render(source)
+		if got := trimRenderedRows(xansi.Strip(out)); err != nil || got != tt.want {
+			t.Errorf("width=%d: got\n%s\nwant\n%s\nerr: %v", tt.width, got, tt.want, err)
+		}
+	}
+}
+
+func TestTableMathWithExhaustedListWidth(t *testing.T) {
+	// List indentation uses the whole budget. Zero remaining columns
+	// must not be mistaken for an unconstrained table.
+	r, err := NewTermRenderer(WithLatexMath(), WithStandardStyle(styles.DarkStyle), WithWordWrap(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const equation = `$$\frac{x}{y}$$`
+	out, err := r.Render("- item\n\n  | h |\n  |---|\n  | " + equation + " |")
+	if err != nil || !strings.Contains(xansi.Strip(out), equation) {
+		t.Errorf("expected source fallback, got %q, %v", out, err)
+	}
+}
+
+func TestTableDisplayMathBreaksAtOperators(t *testing.T) {
+	r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(9), WithTableWrap(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Render("| h |\n|---|\n" + `| $$a+b+c+d$$ |`)
+	rows := strings.Split(trimRenderedRows(xansi.Strip(out)), "\n")
+	if err != nil || len(rows) < 4 {
+		t.Fatalf("expected multiple typeset lines: %q, %v", out, err)
+	}
+	for _, row := range rows {
+		if xansi.StringWidth(row) > 9 {
+			t.Fatalf("overwide line: %q", row)
+		}
+	}
+	if got := strings.Join(strings.Fields(strings.Join(rows[2:], "")), ""); got != "a+b+c+d" {
+		t.Fatalf("equation lost during bounded typesetting: %q", rows)
+	}
+}
+
+func TestTableMathLeavesLiteralCellsAlone(t *testing.T) {
+	r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const source = "| formula | literal |\n|---|---|\n" +
+		"| $$z$$ | `$$x^2$$` and $x^{2$ |"
+	out, err := r.Render(source)
+	if err != nil || !strings.Contains(xansi.Strip(out), `$$x^2$$ and $x^{2$`) {
+		t.Errorf("literal or malformed math changed: %q, %v", out, err)
+	}
+}
+
+func TestTableMatrixInList(t *testing.T) {
+	const width = 40
+	r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(width), WithStandardStyle(styles.DarkStyle))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const source = `- Matrices:
+
+  | Matrix | Reference |
+  | --- | --- |
+  | $$\begin{pmatrix}\mathbf{x} & b \\ c & d\end{pmatrix}$$ | [notes](https://example.com) |`
+	out, err := r.Render(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain := xansi.Strip(out)
+	if !strings.Contains(out, "\x1b[1mx\x1b[22m") || !strings.Contains(plain, "[1]:") {
+		t.Fatalf("missing native math face or table footer: %q", out)
+	}
+	seen := 0
+	seam := -1
+	for line := range strings.SplitSeq(plain, "\n") {
+		if xansi.StringWidth(line) > width {
+			t.Fatalf("list table exceeds width: %q", line)
+		}
+		if left, _, ok := strings.Cut(line, "│"); ok {
+			if seam == -1 {
+				seam = xansi.StringWidth(left)
+			}
+			if !strings.HasPrefix(left, "  ") || xansi.StringWidth(left) != seam {
+				t.Fatalf("list indent or separator shifted:\n%s", plain)
+			}
+			seen++
+		}
+	}
+	if seen < 3 || strings.Contains(plain, `\begin`) {
+		t.Fatalf("matrix not laid out within its list cell:\n%s", plain)
 	}
 }
 

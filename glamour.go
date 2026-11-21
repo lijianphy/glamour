@@ -182,7 +182,8 @@ func WithWordWrap(wordWrap int) TermRendererOption {
 
 // WithTableWrap controls whether table content will wrap if too long.
 // This is true by default. If false, table content will be truncated with an
-// ellipsis if too long to fit.
+// ellipsis if too long to fit. A fitting math grid keeps its intrinsic height
+// in either mode.
 func WithTableWrap(tableWrap bool) TermRendererOption {
 	return func(tr *TermRenderer) error {
 		tr.ansiOptions.TableWrap = &tableWrap
@@ -222,6 +223,8 @@ func LatexMathBlocks() parser.Option {
 }
 
 // WithLatexMath typesets delimited LaTeX math, leaving incomplete expressions raw.
+// In a table cell, $$...$$ and \[...\] request display layout on separate
+// rendered lines. The delimiters must be on the same Markdown source row.
 func WithLatexMath() TermRendererOption {
 	return func(tr *TermRenderer) error {
 		if tr.latexMath {

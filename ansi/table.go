@@ -19,18 +19,15 @@ type TableElement struct {
 }
 
 type tableRenderState struct {
-	lipgloss *table.Table
-	buffer   bytes.Buffer
-	header   []string
-	row      []string
-	inList   bool
-	indent   int
-	width    int
+	buffer bytes.Buffer
+	rows   [][]tableCell // first row is the GFM header
+	row    []tableCell
+	inList bool
+	indent int
+	width  int
 
-	columnWidths    []int
-	lastColumnCells []string
-	tableImages     []tableLink
-	tableLinks      []tableLink
+	tableImages []tableLink
+	tableLinks  []tableLink
 }
 
 // A TableRowElement is used to render a single row in a table.
@@ -84,12 +81,6 @@ func (e *TableElement) Render(w io.Writer, ctx RenderContext) error {
 	_, _ = renderText(prefixTarget, bs.Current().Style.StylePrimitive, rules.BlockPrefix)
 	_, _ = renderText(prefixTarget, style, rules.Prefix)
 
-	wrap := true
-	if ctx.options.TableWrap != nil {
-		wrap = *ctx.options.TableWrap
-	}
-	ctx.table.lipgloss = table.New().Width(width).Wrap(wrap)
-
 	if err := e.collectLinksAndImages(ctx); err != nil {
 		return err
 	}
@@ -97,16 +88,19 @@ func (e *TableElement) Render(w io.Writer, ctx RenderContext) error {
 	return nil
 }
 
-func (e *TableElement) setStyles(ctx RenderContext) {
+func tableBaseStyle(ctx RenderContext) lipgloss.Style {
+	baseStyle := lipgloss.NewStyle()
 	docRules := ctx.options.Styles.Document
 	if docRules.BackgroundColor != nil {
-		baseStyle := lipgloss.NewStyle().Background(lipgloss.Color(*docRules.BackgroundColor))
-		ctx.table.lipgloss.BaseStyle(baseStyle)
+		baseStyle = baseStyle.Background(lipgloss.Color(*docRules.BackgroundColor))
 	}
+	return baseStyle
+}
 
+func (e *TableElement) cellStyles(ctx RenderContext, compact bool) table.StyleFunc {
+	baseStyle := tableBaseStyle(ctx)
 	rules := ctx.options.Styles.Table
-	compact := ctx.table.inList && rules.Margin == nil && ctx.table.compactTable(ctx.table.width)
-	ctx.table.lipgloss = ctx.table.lipgloss.StyleFunc(func(row, col int) lipgloss.Style {
+	return func(row, col int) lipgloss.Style {
 		style := inheritCurrentFaint(ctx, tableCellStylePrimitive(rules, row == table.HeaderRow))
 		st := lipglossStyleFromPrimitive(style).Inline(false)
 		// Default Styles
@@ -131,30 +125,23 @@ func (e *TableElement) setStyles(ctx RenderContext) {
 			// do nothing
 		}
 
-		return st
-	})
+		return st.Inherit(baseStyle)
+	}
 }
 
-func (e *TableElement) setBorders(ctx RenderContext) {
+func tableBorder(ctx RenderContext) (lipgloss.Border, lipgloss.Style) {
 	rules := ctx.options.Styles.Table
 	border := lipgloss.NormalBorder()
 
 	if rules.RowSeparator != nil && rules.ColumnSeparator != nil {
-		border = lipgloss.Border{
-			Top:    *rules.RowSeparator,
-			Bottom: *rules.RowSeparator,
-			Left:   *rules.ColumnSeparator,
-			Right:  *rules.ColumnSeparator,
-			Middle: *rules.CenterSeparator,
+		border.Top, border.Bottom = *rules.RowSeparator, *rules.RowSeparator
+		border.Left, border.Right = *rules.ColumnSeparator, *rules.ColumnSeparator
+		if rules.CenterSeparator != nil {
+			border.Middle = *rules.CenterSeparator
 		}
 	}
-	ctx.table.lipgloss.Border(border)
 	borderStyle := inheritCurrentFaint(ctx, cascadeStylePrimitives(rules.StylePrimitive, rules.Border))
-	ctx.table.lipgloss.BorderStyle(lipglossStyleFromPrimitive(borderStyle))
-	ctx.table.lipgloss.BorderTop(false)
-	ctx.table.lipgloss.BorderLeft(false)
-	ctx.table.lipgloss.BorderRight(false)
-	ctx.table.lipgloss.BorderBottom(false)
+	return border, lipglossStyleFromPrimitive(borderStyle).Inherit(tableBaseStyle(ctx))
 }
 
 // Finish finishes rendering a TableElement.
@@ -163,12 +150,12 @@ func (e *TableElement) Finish(_ io.Writer, ctx RenderContext) error {
 
 	rules := ctx.options.Styles.Table
 
-	e.setStyles(ctx)
-	e.setBorders(ctx)
-	ctx.table.finishRows()
+	tableString, err := e.renderRows(ctx)
+	if err != nil {
+		return err
+	}
 
 	ow := ctx.blockStack.Current().Block
-	tableString := safeTableString(ctx.table.lipgloss, ctx.table.width, ctx.table.lastColumnCells)
 	tw := io.Writer(ow)
 	var iw *IndentWriter
 	if ctx.table.inList {
@@ -203,31 +190,19 @@ func (e *TableElement) Finish(_ io.Writer, ctx RenderContext) error {
 
 // Finish finishes rendering a TableRowElement.
 func (e *TableRowElement) Finish(_ io.Writer, ctx RenderContext) error {
-	if ctx.table.lipgloss == nil {
-		return nil
-	}
-
-	ctx.table.rememberRow(ctx.table.row)
-	ctx.table.lipgloss.Row(ctx.table.row...)
-	ctx.table.row = []string{}
+	ctx.table.endRow()
 	return nil
 }
 
 // Finish finishes rendering a TableHeadElement.
 func (e *TableHeadElement) Finish(_ io.Writer, ctx RenderContext) error {
-	if ctx.table.lipgloss == nil {
-		return nil
-	}
-
-	ctx.table.rememberRow(ctx.table.header)
-	ctx.table.lipgloss.Headers(ctx.table.header...)
-	ctx.table.header = []string{}
+	ctx.table.endRow()
 	return nil
 }
 
 // Render renders a TableCellElement.
 func (e *TableCellElement) Render(_ io.Writer, ctx RenderContext) error {
-	var b bytes.Buffer
+	var b cellWriter
 	style := inheritCurrentFaint(ctx, tableCellStylePrimitive(ctx.options.Styles.Table, e.Head))
 	for _, child := range e.Children {
 		if r, ok := child.(StyleOverriderElementRenderer); ok {
@@ -249,37 +224,79 @@ func (e *TableCellElement) Render(_ io.Writer, ctx RenderContext) error {
 		}
 	}
 
-	if e.Head {
-		ctx.table.header = append(ctx.table.header, b.String())
-	} else {
-		ctx.table.row = append(ctx.table.row, b.String())
-	}
+	ctx.table.row = append(ctx.table.row, tableCell{text: b.String(), grids: b.grids})
 
 	return nil
 }
 
-func (s *tableRenderState) rememberRow(row []string) {
-	if len(row) == 0 {
-		return
-	}
-	s.lastColumnCells = append(s.lastColumnCells, strings.TrimSpace(xansi.Strip(row[len(row)-1])))
-	if len(row) > len(s.columnWidths) {
-		s.columnWidths = append(s.columnWidths, make([]int, len(row)-len(s.columnWidths))...)
-	}
-	for column, cell := range row {
-		s.columnWidths[column] = max(s.columnWidths[column], xansi.StringWidth(cell))
-	}
+func (s *tableRenderState) endRow() {
+	s.rows = append(s.rows, s.row)
+	s.row = nil
 }
 
-func (s *tableRenderState) compactTable(width int) bool {
-	if width <= 0 || len(s.columnWidths) == 0 {
-		return false
+func (s *tableRenderState) hasGrids() bool {
+	for _, row := range s.rows {
+		for _, cell := range row {
+			if len(cell.grids) != 0 {
+				return true
+			}
+		}
 	}
+	return false
+}
+
+func (e *TableElement) renderRows(ctx RenderContext) (string, error) {
+	s := ctx.table
+	grids := s.hasGrids()
+	canCompact := s.inList && ctx.options.Styles.Table.Margin == nil && s.width > 0
+	var widths []int
+	if grids || canCompact {
+		widths = make([]int, len(e.table.Alignments))
+		for _, row := range s.rows {
+			for j, cell := range row {
+				widths[j] = max(widths[j], cell.naturalWidth())
+			}
+		}
+	}
+	styles := e.cellStyles(ctx, canCompact && compactTable(s.width, widths))
+	border, borderStyle := tableBorder(ctx)
+	if grids {
+		if widths := s.gridWidths(widths, ctx.options.WordWrap == 0, styles, border); widths != nil {
+			return s.renderGridRows(ctx, widths, styles, border, borderStyle)
+		}
+	}
+	// Keep ordinary tables (and frames too narrow for a grid) on the
+	// established Lip Gloss wrap/truncate path.
+	wrap := ctx.options.TableWrap == nil || *ctx.options.TableWrap
+	t := table.New().Width(s.width).Wrap(wrap).StyleFunc(styles).Border(border).BorderStyle(borderStyle).
+		BorderTop(false).BorderLeft(false).BorderRight(false).BorderBottom(false)
+	lastColumnCells := make([]string, 0, len(s.rows))
+	for i, row := range s.rows {
+		text := make([]string, len(row))
+		for j, cell := range row {
+			text[j] = cell.text
+		}
+		if len(text) > 0 {
+			lastColumnCells = append(lastColumnCells, strings.TrimSpace(xansi.Strip(text[len(text)-1])))
+		}
+		if i == 0 {
+			t.Headers(text...)
+		} else {
+			t.Row(text...)
+		}
+	}
+	if len(lastColumnCells) > 1 {
+		lastColumnCells = uniqueNonEmptyStrings(lastColumnCells)
+	}
+	return safeTableString(t, s.width, lastColumnCells), nil
+}
+
+func compactTable(width int, widths []int) bool {
 	naturalWidth := 0
-	for _, columnWidth := range s.columnWidths {
+	for _, columnWidth := range widths {
 		naturalWidth += columnWidth + 2
 	}
-	naturalWidth += max(0, len(s.columnWidths)-1)
+	naturalWidth += max(0, len(widths)-1)
 	return width < naturalWidth
 }
 
@@ -374,21 +391,12 @@ func uniqueNonEmptyStrings(values []string) []string {
 	return unique
 }
 
-func (s *tableRenderState) finishRows() {
-	if len(s.lastColumnCells) > 1 {
-		s.lastColumnCells = uniqueNonEmptyStrings(s.lastColumnCells)
-	}
-}
-
 func (s *tableRenderState) reset() {
-	s.lipgloss = nil
 	s.buffer.Reset()
-	s.header = nil
+	s.rows = nil
 	s.row = nil
 	s.tableImages = nil
 	s.tableLinks = nil
-	s.lastColumnCells = nil
-	s.columnWidths = nil
 	s.inList = false
 	s.indent = 0
 	s.width = 0

@@ -201,7 +201,13 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 		n := node.(*latex.InlineMath)
 		raw := &BaseElement{Token: string(n.Text(source)), Style: ctx.options.Styles.InlineMath, Raw: true}
 		if body := n.Body(source); body != nil {
-			return Element{Renderer: inlineMath(ctx, string(body), raw, mathInProse(node))}
+			p := mathContainer(node)
+			if p != nil && p.Kind() == astext.KindTableCell {
+				return Element{Renderer: tableMath(ctx, string(body), raw)}
+			}
+			prose := p != nil && (p.Kind() == ast.KindParagraph ||
+				p.Kind() == ast.KindTextBlock && p.Parent() != nil && p.Parent().Kind() == ast.KindListItem)
+			return Element{Renderer: inlineMath(ctx, string(body), raw, prose)}
 		}
 		return Element{Renderer: raw}
 
@@ -504,22 +510,14 @@ func (tr *ANSIRenderer) NewElement(node ast.Node, source []byte) Element {
 	}
 }
 
-// Only prose has block flow. A table cell, heading or link cannot safely
-// host a paragraph-width grid.
-func mathInProse(node ast.Node) bool {
-	for p := node.Parent(); p != nil; p = p.Parent() {
-		switch p.Kind() {
-		case ast.KindParagraph:
-			return true
-		case ast.KindTextBlock:
-			return p.Parent() != nil && p.Parent().Kind() == ast.KindListItem
-		case ast.KindEmphasis:
-			continue
-		default:
-			return false
-		}
+// Emphasis inherits the surrounding math layout. Links and other inline
+// containers do not: their labels must not turn into blocks.
+func mathContainer(node ast.Node) ast.Node {
+	p := node.Parent()
+	for p != nil && p.Kind() == ast.KindEmphasis {
+		p = p.Parent()
 	}
-	return false
+	return p
 }
 
 func (tr *ANSIRenderer) newExitElement(node ast.Node, source []byte) Element {
