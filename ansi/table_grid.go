@@ -116,10 +116,8 @@ func trimCellProse(text string) string {
 
 // gridWidths fits the natural widths in place, excluding framing. Cap the largest
 // columns first; the binary search doesn't depend on the source text length.
-func (s *tableRenderState) gridWidths(widths []int, unbounded bool, styles table.StyleFunc, border lipgloss.Border) []int {
+func gridWidths(widths []int, budget int, unbounded bool, styles table.StyleFunc) []int {
 	n := len(widths)
-	seam := max(lipgloss.Width(border.Left), lipgloss.Width(border.Middle))
-	budget := s.width - (n-1)*seam
 	total := 0
 	for col, w := range widths {
 		budget -= styles(table.HeaderRow, col).GetHorizontalFrameSize()
@@ -225,11 +223,42 @@ func (c tableCell) lines(ctx RenderContext, width int, wrap bool) ([]string, err
 	return lines, nil
 }
 
-func (s *tableRenderState) renderGridRows(ctx RenderContext, widths []int, styles table.StyleFunc, border lipgloss.Border, borderStyle lipgloss.Style) (string, error) {
-	seam := max(lipgloss.Width(border.Left), lipgloss.Width(border.Middle))
-	separator := borderStyle.Width(seam).Render(border.Left)
+func (s *tableRenderState) renderGridRows(ctx RenderContext, widths []int, styles table.StyleFunc, border lipgloss.Border, borderStyle lipgloss.Style, seam int) (string, error) {
+	full := ctx.options.Styles.Table.FullGrid
+	junction := borderStyle.Width(seam)
+	separator := junction.Render(border.Left)
+	var left, right string
+	if full {
+		left, right = separator, junction.Render(border.Right)
+	}
+	rule := func(start, cross, end, stroke string) string {
+		var b strings.Builder
+		if full {
+			b.WriteString(junction.Render(start))
+		}
+		unit := lipgloss.Width(stroke)
+		for j, w := range widths {
+			if j != 0 {
+				b.WriteString(junction.Render(cross))
+			}
+			size := w + styles(table.HeaderRow, j).GetHorizontalFrameSize()
+			fill := strings.Repeat(" ", size)
+			if unit > 0 {
+				fill = strings.Repeat(stroke, size/unit) + strings.Repeat(" ", size%unit)
+			}
+			b.WriteString(borderStyle.Render(fill))
+		}
+		if full {
+			b.WriteString(junction.Render(end))
+		}
+		return b.String()
+	}
+	middle := rule(border.MiddleLeft, border.Middle, border.MiddleRight, border.Top)
 	wrap := ctx.options.TableWrap == nil || *ctx.options.TableWrap
 	var output []string
+	if full {
+		output = append(output, rule(border.TopLeft, border.MiddleTop, border.TopRight, border.Top))
+	}
 	for i, row := range s.rows {
 		cells := make([][]string, len(widths))
 		cellStyles := make([]lipgloss.Style, len(widths))
@@ -248,6 +277,7 @@ func (s *tableRenderState) renderGridRows(ctx RenderContext, widths []int, style
 		}
 		for y := range height {
 			var line strings.Builder
+			line.WriteString(left)
 			for j, cell := range cells {
 				if j != 0 {
 					line.WriteString(separator)
@@ -258,24 +288,15 @@ func (s *tableRenderState) renderGridRows(ctx RenderContext, widths []int, style
 				}
 				line.WriteString(cellStyles[j].Render(value))
 			}
+			line.WriteString(right)
 			output = append(output, line.String())
 		}
-		if i == 0 {
-			var rule strings.Builder
-			for j, w := range widths {
-				if j != 0 {
-					rule.WriteString(borderStyle.Width(seam).Render(border.Middle))
-				}
-				size := w + cellStyles[j].GetHorizontalFrameSize()
-				unit := lipgloss.Width(border.Top)
-				fill := strings.Repeat(" ", size)
-				if unit > 0 {
-					fill = strings.Repeat(border.Top, size/unit) + strings.Repeat(" ", size%unit)
-				}
-				rule.WriteString(borderStyle.Render(fill))
-			}
-			output = append(output, rule.String())
+		if (!full && i == 0) || (full && i < len(s.rows)-1) {
+			output = append(output, middle)
 		}
+	}
+	if full {
+		output = append(output, rule(border.BottomLeft, border.MiddleBottom, border.BottomRight, border.Bottom))
 	}
 	return strings.Join(output, "\n"), nil
 }

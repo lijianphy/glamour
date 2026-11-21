@@ -91,6 +91,8 @@ type StyleList struct {
 // StyleTable holds the style settings for a table.
 type StyleTable struct {
 	StyleBlock
+	// FullGrid draws an outer border and rules between logical table rows.
+	FullGrid        bool           `json:"full_grid,omitempty"`
 	CenterSeparator *string        `json:"center_separator,omitempty"`
 	ColumnSeparator *string        `json:"column_separator,omitempty"`
 	RowSeparator    *string        `json:"row_separator,omitempty"`

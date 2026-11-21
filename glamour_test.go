@@ -226,6 +226,40 @@ func TestTableMathFitBoundary(t *testing.T) {
 	}
 }
 
+func TestFullGridTable(t *testing.T) {
+	r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(13),
+		WithStylesFromJSONBytes([]byte(`{"table":{"full_grid":true}}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct{ name, value, want string }{
+		{"ordinary", "x", `┌─────┬─────┐
+│ A   │ B   │
+├─────┼─────┤
+│ x   │ one │
+├─────┼─────┤
+│ end │ two │
+└─────┴─────┘`},
+		{"equation", `$$\frac{x}{y}$$`, `┌─────┬─────┐
+│ A   │ B   │
+├─────┼─────┤
+│  x  │ one │
+│ ─── │     │
+│  y  │     │
+├─────┼─────┤
+│ end │ two │
+└─────┴─────┘`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			source := "| A | B |\n|---|---|\n| " + tt.value + " | one |\n| end | two |"
+			out, err := r.Render(source)
+			if got := trimRenderedRows(xansi.Strip(out)); err != nil || got != tt.want {
+				t.Fatalf("got:\n%s\nwant:\n%s\nerror: %v", got, tt.want, err)
+			}
+		})
+	}
+}
+
 func TestTableMathWithTabbedProse(t *testing.T) {
 	const source = "| h | v |\n|---|---|\n| A\tB | " + `$$\frac{x}{y}$$ |`
 	for _, tt := range []struct {

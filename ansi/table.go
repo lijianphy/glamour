@@ -258,18 +258,27 @@ func (e *TableElement) renderRows(ctx RenderContext) (string, error) {
 			}
 		}
 	}
-	styles := e.cellStyles(ctx, canCompact && compactTable(s.width, widths))
 	border, borderStyle := tableBorder(ctx)
+	full := ctx.options.Styles.Table.FullGrid
+	seam := max(lipgloss.Width(border.Left), lipgloss.Width(border.Middle))
+	separators := max(0, len(e.table.Alignments)-1)
+	if full {
+		seam = max(1, seam) // the corners and junctions are at least one column wide
+		separators += 2
+	}
+	budget := s.width - separators*seam
+	styles := e.cellStyles(ctx, canCompact && compactTable(budget, widths))
 	if grids {
-		if widths := s.gridWidths(widths, ctx.options.WordWrap == 0, styles, border); widths != nil {
-			return s.renderGridRows(ctx, widths, styles, border, borderStyle)
+		if widths := gridWidths(widths, budget, ctx.options.WordWrap == 0, styles); widths != nil {
+			return s.renderGridRows(ctx, widths, styles, border, borderStyle, seam)
 		}
 	}
 	// Keep ordinary tables (and frames too narrow for a grid) on the
 	// established Lip Gloss wrap/truncate path.
 	wrap := ctx.options.TableWrap == nil || *ctx.options.TableWrap
 	t := table.New().Width(s.width).Wrap(wrap).StyleFunc(styles).Border(border).BorderStyle(borderStyle).
-		BorderTop(false).BorderLeft(false).BorderRight(false).BorderBottom(false)
+		BorderTop(full).BorderLeft(full).BorderRight(full).BorderBottom(full).BorderRow(full).
+		BorderHeader(!full || len(s.rows) > 1)
 	lastColumnCells := make([]string, 0, len(s.rows))
 	for i, row := range s.rows {
 		text := make([]string, len(row))
@@ -296,7 +305,6 @@ func compactTable(width int, widths []int) bool {
 	for _, columnWidth := range widths {
 		naturalWidth += columnWidth + 2
 	}
-	naturalWidth += max(0, len(widths)-1)
 	return width < naturalWidth
 }
 
