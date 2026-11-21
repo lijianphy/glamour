@@ -10,19 +10,19 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-// TableParserOptions installs the GFM table parser with math-aware row splitting.
-func TableParserOptions() []parser.Option {
+// TableParserOptions installs the GFM table parser with span-aware row splitting.
+func TableParserOptions(math, code bool) []parser.Option {
 	return []parser.Option{
-		parser.WithParagraphTransformers(util.Prioritized(mathTableTransformer{}, 200)),
+		parser.WithParagraphTransformers(util.Prioritized(tableTransformer{math: math, code: code}, 200)),
 		parser.WithASTTransformers(util.Prioritized(gfm.NewTableASTTransformer(), 0)),
 	}
 }
 
-type mathTableTransformer struct{}
+type tableTransformer struct{ math, code bool }
 
 var tableSourceKey = parser.NewContextKey()
 
-func (mathTableTransformer) Transform(p *ast.Paragraph, reader text.Reader, pc parser.Context) {
+func (t tableTransformer) Transform(p *ast.Paragraph, reader text.Reader, pc parser.Context) {
 	source := reader.Source()
 	lines := p.Lines()
 	// Only scan potential table rows. Goldmark still validates the delimiter,
@@ -40,8 +40,8 @@ func (mathTableTransformer) Transform(p *ast.Paragraph, reader text.Reader, pc p
 			if !bytes.ContainsRune(rowBytes, '|') {
 				continue
 			}
-			visitMathPipes(rowBytes, func(pos int) {
-				// Give only the row splitter a same-length view with math pipes
+			t.visitSpanPipes(rowBytes, func(pos int) {
+				// Give only the row splitter a same-length view with span pipes
 				// hidden. Its AST segments still index the untouched input.
 				if masked == nil {
 					masked = pc.ComputeIfAbsent(tableSourceKey, func() any { return bytes.Clone(source) }).([]byte)
@@ -57,46 +57,53 @@ func (mathTableTransformer) Transform(p *ast.Paragraph, reader text.Reader, pc p
 	gfm.NewTableParagraphTransformer().Transform(p, reader, pc)
 }
 
-func visitMathPipes(line []byte, visit func(int)) {
+func (t tableTransformer) visitSpanPipes(line []byte, visit func(int)) {
 	line = line[:lineContentEnd(line)]
 	for i := 0; i < len(line); {
+		var length int
 		switch line[i] {
 		case '`':
-			// Use Goldmark's own backtick-run matching. These pipes stay
-			// visible to GFM; only math recognition is suspended.
+			// An unmatched run is returned as text, not a CodeSpan.
 			r := text.NewReader(line[i:])
-			parser.NewCodeSpanParser().Parse(nil, r, nil)
+			n := parser.NewCodeSpanParser().Parse(nil, r, nil)
 			_, pos := r.Position()
-			i += untilCellEnd(line[i : i+pos.Start])
-			continue
+			if !t.code || n.Kind() != ast.KindCodeSpan {
+				i += untilCellEnd(line[i : i+pos.Start])
+				continue
+			}
+			length = pos.Start
 		case '\\', '$':
-			stop, width := matchInlineMath(line[i:])
-			if width != 0 {
-				for j := i; j < i+stop; j++ {
-					if line[j] == '|' {
-						visit(j)
-					}
+			if t.math {
+				stop, width := matchInlineMath(line[i:])
+				if stop != 0 && width == 0 {
+					// An incomplete expression stays raw only within its cell.
+					i += untilCellEnd(line[i : i+stop])
+					continue
 				}
-				i += stop
-				continue
+				length = stop
 			}
-			if stop != 0 {
-				// An incomplete expression stays raw only within its cell.
-				i += untilCellEnd(line[i : i+stop])
-				continue
-			}
-			if line[i] == '\\' {
+			if length == 0 && line[i] == '\\' {
 				// A Markdown escape cannot start another span.
 				i += 2
 				continue
 			}
 		}
-		i++
+		if length == 0 {
+			i++
+			continue
+		}
+		for j := i + 1; j < i+length; j++ {
+			// Leave escaped pipes in code visible to GFM's unescaper.
+			if line[j] == '|' && (line[i] != '`' || line[j-1] != '\\') {
+				visit(j)
+			}
+		}
+		i += length
 	}
 }
 
 // Even if a backtick or an incomplete expression opens in one cell, resume
-// looking for math in the next. Match Goldmark's escaped-pipe check here.
+// looking for spans in the next. Match Goldmark's escaped-pipe check here.
 func untilCellEnd(span []byte) int {
 	for i, c := range span {
 		if c == '|' && (i == 0 || span[i-1] != '\\') {

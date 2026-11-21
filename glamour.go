@@ -34,11 +34,12 @@ type TermRendererOption func(*TermRenderer) error
 // TermRenderer can be used to render markdown content, posing a depth of
 // customization and styles to fit your needs.
 type TermRenderer struct {
-	md          goldmark.Markdown
-	ansiOptions ansi.Options
-	buf         bytes.Buffer
-	renderBuf   bytes.Buffer
-	latexMath   bool
+	md             goldmark.Markdown
+	ansiOptions    ansi.Options
+	buf            bytes.Buffer
+	renderBuf      bytes.Buffer
+	latexMath      bool
+	tableCodePipes bool
 }
 
 // Render initializes a new TermRenderer and renders a markdown with a specific
@@ -72,7 +73,7 @@ func NewTermRenderer(options ...TermRendererOption) (*TermRenderer, error) {
 	tr := &TermRenderer{
 		md: goldmark.New(
 			goldmark.WithExtensions(
-				// Install the GFM table extension below, after math is configured.
+				// Install the table extension below, after options are applied.
 				extension.Linkify, extension.Strikethrough, extension.TaskList,
 				extension.DefinitionList,
 			),
@@ -89,8 +90,8 @@ func NewTermRenderer(options ...TermRendererOption) (*TermRenderer, error) {
 			return nil, err
 		}
 	}
-	if tr.latexMath {
-		tr.md.Parser().AddOptions(latex.TableParserOptions()...)
+	if tr.latexMath || tr.tableCodePipes {
+		tr.md.Parser().AddOptions(latex.TableParserOptions(tr.latexMath, tr.tableCodePipes)...)
 	} else {
 		extension.Table.Extend(tr.md)
 	}
@@ -233,8 +234,8 @@ func LatexMathBlocks() parser.Option {
 // WithLatexMath typesets delimited LaTeX math, leaving incomplete expressions raw.
 // In a table cell, $$...$$ and \[...\] request display layout on separate
 // rendered lines. Pipes inside complete math expressions are literal, not cell
-// separators. The delimiters must be on the same Markdown source row. Code
-// spans still follow GFM table rules: write \| for a literal pipe.
+// separators. The delimiters must be on the same Markdown source row. For
+// literal pipes in code spans, write \| or enable [WithTableCodePipes].
 func WithLatexMath() TermRendererOption {
 	return func(tr *TermRenderer) error {
 		if tr.latexMath {
@@ -242,6 +243,17 @@ func WithLatexMath() TermRendererOption {
 		}
 		latex.Extension.Extend(tr.md)
 		tr.latexMath = true
+		return nil
+	}
+}
+
+// WithTableCodePipes allows unescaped pipes inside code spans in table headers
+// and body cells. The matching backticks must be on the same source row.
+// GFM's escaped \| is still accepted. When used with [WithLatexMath], the
+// first complete span wins: code inside math or math inside code stays literal.
+func WithTableCodePipes() TermRendererOption {
+	return func(tr *TermRenderer) error {
+		tr.tableCodePipes = true
 		return nil
 	}
 }
