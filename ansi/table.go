@@ -4,11 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"strings"
 
 	"charm.land/lipgloss/v2"
-	"charm.land/lipgloss/v2/table"
-	xansi "github.com/charmbracelet/x/ansi"
 	astext "github.com/yuin/goldmark/extension/ast"
 )
 
@@ -97,11 +94,13 @@ func tableBaseStyle(ctx RenderContext) lipgloss.Style {
 	return baseStyle
 }
 
-func (e *TableElement) cellStyles(ctx RenderContext, compact bool) table.StyleFunc {
+type cellStyleFunc func(header bool, col int) lipgloss.Style
+
+func (e *TableElement) cellStyles(ctx RenderContext, compact bool) cellStyleFunc {
 	baseStyle := tableBaseStyle(ctx)
 	rules := ctx.options.Styles.Table
-	return func(row, col int) lipgloss.Style {
-		style := inheritCurrentFaint(ctx, tableCellStylePrimitive(rules, row == table.HeaderRow))
+	return func(header bool, col int) lipgloss.Style {
+		style := inheritCurrentFaint(ctx, tableCellStylePrimitive(rules, header))
 		st := lipglossStyleFromPrimitive(style).Inline(false)
 		// Default Styles
 		if compact {
@@ -234,28 +233,24 @@ func (s *tableRenderState) endRow() {
 	s.row = nil
 }
 
-func (s *tableRenderState) hasGrids() bool {
-	for _, row := range s.rows {
-		for _, cell := range row {
-			if len(cell.grids) != 0 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (e *TableElement) renderRows(ctx RenderContext) (string, error) {
 	s := ctx.table
-	grids := s.hasGrids()
 	canCompact := s.inList && ctx.options.Styles.Table.Margin == nil && s.width > 0
-	var widths []int
-	if grids || canCompact {
-		widths = make([]int, len(e.table.Alignments))
-		for _, row := range s.rows {
-			for j, cell := range row {
-				widths[j] = max(widths[j], cell.naturalWidth())
+	columns := make([]columnMeasure, len(e.table.Alignments))
+	record := [2]columnMeasure{}
+	wrap := ctx.options.TableWrap == nil || *ctx.options.TableWrap
+	for i, row := range s.rows {
+		field := 1
+		if i == 0 {
+			field = 0
+		}
+		for j, cell := range row {
+			m := cell.measure()
+			record[field].include(m)
+			if i == 0 || !wrap {
+				m.minimum = 1 // headers and non-wrapping body cells may truncate
 			}
+			columns[j].include(m)
 		}
 	}
 	border, borderStyle := tableBorder(ctx)
@@ -267,136 +262,22 @@ func (e *TableElement) renderRows(ctx RenderContext) (string, error) {
 		separators += 2
 	}
 	budget := s.width - separators*seam
-	styles := e.cellStyles(ctx, canCompact && compactTable(budget, widths))
-	if grids {
-		if widths := gridWidths(widths, budget, ctx.options.WordWrap == 0, styles); widths != nil {
-			return s.renderGridRows(ctx, widths, styles, border, borderStyle, seam)
-		}
+	styles := e.cellStyles(ctx, canCompact && compactTable(budget, columns))
+	for j := range columns {
+		budget -= styles(true, j).GetHorizontalFrameSize()
 	}
-	// Keep ordinary tables (and frames too narrow for a grid) on the
-	// established Lip Gloss wrap/truncate path.
-	wrap := ctx.options.TableWrap == nil || *ctx.options.TableWrap
-	t := table.New().Width(s.width).Wrap(wrap).StyleFunc(styles).Border(border).BorderStyle(borderStyle).
-		BorderTop(full).BorderLeft(full).BorderRight(full).BorderBottom(full).BorderRow(full).
-		BorderHeader(!full || len(s.rows) > 1)
-	lastColumnCells := make([]string, 0, len(s.rows))
-	for i, row := range s.rows {
-		text := make([]string, len(row))
-		for j, cell := range row {
-			text[j] = cell.text
-		}
-		if len(text) > 0 {
-			lastColumnCells = append(lastColumnCells, strings.TrimSpace(xansi.Strip(text[len(text)-1])))
-		}
-		if i == 0 {
-			t.Headers(text...)
-		} else {
-			t.Row(text...)
-		}
+	if widths := fitColumnWidths(columns, budget, ctx.options.WordWrap == 0); widths != nil {
+		return s.paintRows(ctx, widths, styles, border, borderStyle, seam)
 	}
-	if len(lastColumnCells) > 1 {
-		lastColumnCells = uniqueNonEmptyStrings(lastColumnCells)
-	}
-	return safeTableString(t, s.width, lastColumnCells), nil
+	return s.paintRecords(ctx, record, styles, border, borderStyle)
 }
 
-func compactTable(width int, widths []int) bool {
+func compactTable(width int, columns []columnMeasure) bool {
 	naturalWidth := 0
-	for _, columnWidth := range widths {
-		naturalWidth += columnWidth + 2
+	for _, col := range columns {
+		naturalWidth += col.natural + 2
 	}
 	return width < naturalWidth
-}
-
-// safeTableString avoids a Lipgloss edge case where a borderless table at a
-// width boundary gets hard-clipped by MaxWidth without an ellipsis.
-func safeTableString(t *table.Table, width int, lastColumnCells []string) string {
-	rendered := t.String()
-	if width <= 1 || len(lastColumnCells) == 0 || !tableStringLooksClipped(rendered, width, lastColumnCells) {
-		return rendered
-	}
-
-	t.Width(width - 1)
-	narrower := t.String()
-	t.Width(width)
-	if tableStringEllipsisCount(narrower) > tableStringEllipsisCount(rendered) ||
-		tableStringLineCount(narrower) > tableStringLineCount(rendered) {
-		return narrower
-	}
-	return rendered
-}
-
-func tableStringLooksClipped(rendered string, width int, lastColumnCells []string) bool {
-	plain := xansi.Strip(rendered)
-	lines := fullWidthTableLines(plain, width)
-	if len(lines) == 0 {
-		return false
-	}
-
-	for _, cell := range lastColumnCells {
-		if cell == "" || strings.Contains(plain, cell) {
-			continue
-		}
-		if anyLineEndsWithCellPrefix(lines, cell) {
-			return true
-		}
-	}
-	return false
-}
-
-func fullWidthTableLines(rendered string, width int) []string {
-	var lines []string
-	for line := range strings.SplitSeq(rendered, "\n") {
-		line = strings.TrimRight(line, " ")
-		if line == "" || strings.ContainsRune(line, '…') || xansi.StringWidth(line) != width {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	return lines
-}
-
-func anyLineEndsWithCellPrefix(lines []string, cell string) bool {
-	runes := []rune(cell)
-	for end := len(runes) - 1; end > 0; end-- {
-		prefix := string(runes[:end])
-		if xansi.StringWidth(prefix) < 3 {
-			continue
-		}
-		for _, line := range lines {
-			if strings.HasSuffix(line, prefix) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func tableStringLineCount(value string) int {
-	if value == "" {
-		return 0
-	}
-	return strings.Count(value, "\n") + 1
-}
-
-func tableStringEllipsisCount(value string) int {
-	return strings.Count(xansi.Strip(value), "…")
-}
-
-func uniqueNonEmptyStrings(values []string) []string {
-	seen := make(map[string]struct{}, len(values))
-	unique := values[:0]
-	for _, value := range values {
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		unique = append(unique, value)
-	}
-	return unique
 }
 
 func (s *tableRenderState) reset() {

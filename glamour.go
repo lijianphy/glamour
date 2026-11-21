@@ -183,7 +183,9 @@ func WithWordWrap(wordWrap int) TermRendererOption {
 // WithTableWrap controls whether table content will wrap if too long.
 // This is true by default. If false, table content will be truncated with an
 // ellipsis if too long to fit. A fitting math grid keeps its intrinsic height
-// in either mode.
+// in either mode. When the available width cannot fit even one character per
+// column and its frame, each record becomes a compact table of wrapping
+// header/value pairs. If even two columns cannot fit, labels stack above values.
 func WithTableWrap(tableWrap bool) TermRendererOption {
 	return func(tr *TermRenderer) error {
 		tr.ansiOptions.TableWrap = &tableWrap

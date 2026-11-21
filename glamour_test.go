@@ -297,6 +297,67 @@ func TestTableMathWithExhaustedListWidth(t *testing.T) {
 	}
 }
 
+func TestTableTooNarrowForColumns(t *testing.T) {
+	const source = "| H | I |\n|---|---|\n| one | $$x$$ |\n| two | 2 |"
+	for _, tt := range []struct {
+		width int
+		want  string
+	}{
+		// Two margins per column plus three border columns leave only one
+		// column of content at width 8. Preserve both cells, even in truncate mode.
+		{8, "H │ one\nI │ x\n───────\nH │ two\nI │ 2"},
+		{4, "H│on\n │e\nI│x\n────\nH│tw\n │o\nI│2"},
+		{3, "H│o\n │n\n │e\nI│x\n───\nH│t\n │w\n │o\nI│2"},
+		{2, "H\non\ne\nI\nx\n\nH\ntw\no\nI\n2"},
+		{9, "┌───┬───┐\n│ H │ I │\n├───┼───┤\n│ … │ x │\n├───┼───┤\n│ … │ 2 │\n└───┴───┘"},
+	} {
+		r, err := NewTermRenderer(WithLatexMath(), WithTableWrap(false), WithWordWrap(tt.width),
+			WithStylesFromJSONBytes([]byte(`{"table":{"full_grid":true}}`)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.Render(source)
+		if got := trimRenderedRows(xansi.Strip(out)); err != nil || got != tt.want {
+			t.Errorf("width=%d: got %q, want %q, err: %v", tt.width, got, tt.want, err)
+		}
+	}
+}
+
+func TestNarrowTablePreservesWideCellsAndMath(t *testing.T) {
+	const wide = "| A | B |\n|---|---|\n| 界 | 2 |"
+	for _, tt := range []struct {
+		width        int
+		source, want string
+	}{
+		{5, wide, "A│界\nB│2"},
+		{3, wide, "A\n界\nB\n2"},
+		{8, `| $$\frac{x}{y}$$ | B |` + "\n|---|---|", " x\n───\n y\nB"},
+	} {
+		r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(tt.width),
+			WithStylesFromJSONBytes([]byte(`{"table":{"full_grid":true}}`)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := r.Render(tt.source)
+		if got := trimRenderedRows(xansi.Strip(out)); err != nil || got != tt.want {
+			t.Errorf("width=%d: got %q, want %q, err: %v", tt.width, got, tt.want, err)
+		}
+	}
+}
+
+func TestTableRecordWrapsLabelBesideEquation(t *testing.T) {
+	r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(9),
+		WithStylesFromJSONBytes([]byte(`{"table":{"full_grid":true}}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := r.Render("| LONG | B | C |\n|---|---|---|\n" + `| $$\frac{x}{y}$$ | 2 | 3 |`)
+	const want = "LON │  x\nG   │ ───\n    │  y\nB   │ 2\nC   │ 3"
+	if got := trimRenderedRows(xansi.Strip(out)); err != nil || got != want {
+		t.Errorf("got:\n%s\nwant:\n%s\nerr: %v", got, want, err)
+	}
+}
+
 func TestTableDisplayMathBreaksAtOperators(t *testing.T) {
 	r, err := NewTermRenderer(WithLatexMath(), WithWordWrap(9), WithTableWrap(false))
 	if err != nil {
